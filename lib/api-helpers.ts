@@ -117,14 +117,28 @@ export async function simpleLLMCall(
         try {
             const streamed = await streamingLLMCall(config, messages, temperature, max_tokens, options.signal);
             const wasTruncated = isTruncationFinishReason(streamed.finishReason);
+            // 模型被安全过滤中途掐断时，已吐出的正文只是半截；当成失败，不能当成完整结果入库。
+            const stoppedBySafety = isSafetyFinishReason(streamed.finishReason);
+            const finishNote = streamed.finishReason && !/^(stop|end_turn)$/i.test(streamed.finishReason)
+                ? `\n[finishReason: ${streamed.finishReason}]`
+                : "";
             pushApiLog({
                 characterName: options.label,
                 source: "background",
                 model: config.defaultModel,
                 messages: messages.map(m => ({ role: m.role, content: m.content })),
-                rawResponse: streamed.content,
+                rawResponse: stoppedBySafety
+                    ? `[被模型安全过滤中断，回复不完整]${finishNote}\n${streamed.content}`
+                    : `${streamed.content}${finishNote}`,
                 usage: streamed.usage,
             });
+            if (stoppedBySafety) {
+                return {
+                    content: null,
+                    error: `模型因安全过滤中途停止输出（${streamed.finishReason}），回复不完整，已取消入库。可换一个对内容更宽松的模型来做记忆总结`,
+                    finishReason: streamed.finishReason,
+                };
+            }
             return { content: streamed.content, finishReason: streamed.finishReason, wasTruncated };
         } catch (err) {
             if (options.signal?.aborted) {
