@@ -827,7 +827,12 @@ export async function generateImageFromConfiguredApi(params: {
     ? await normalizeReferenceImageForEdit(rawReferenceImageDataUrl)
     : null;
   throwIfAborted(params.signal);
-  const prompt = [mergePrompt(description, openaiSettings.extraPrompt), ...collectAppearanceParts(description, params.characterId, settings)].join("\n\n");
+  const lockPrompt = referenceImageDataUrl ? (settings.referenceLockPrompt || "").trim() : "";
+  const prompt = [
+    ...(lockPrompt ? [lockPrompt] : []),
+    mergePrompt(description, openaiSettings.extraPrompt),
+    ...collectAppearanceParts(description, params.characterId, settings),
+  ].join("\n\n");
 
   const data = openaiSettings.requestMode === "direct"
     ? await generateImageDirect({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal })

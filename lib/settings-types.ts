@@ -251,6 +251,8 @@ export type ImageGenerationSettings = {
     characterPrompts?: Record<string, string>;
     /** 用户外貌追加词：仅当图片描述提到用户（姓名或触发词）时追加。 */
     userExtraPrompt?: string;
+    /** 使用参考图时，加在整条提示词最前面的「锁脸」指令；留空则不加。 */
+    referenceLockPrompt?: string;
     /** 额外触发词，逗号/顿号/换行分隔；用户身份的姓名会自动作为触发词。 */
     userTriggerKeywords?: string;
     imageHosting: ImageHostingSettings;

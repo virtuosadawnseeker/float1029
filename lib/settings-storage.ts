@@ -683,6 +683,9 @@ export const DEFAULT_NOVELAI_PRESET: import("./settings-types").NovelAiPreset = 
     smeaDyn: false,
 };
 
+export const DEFAULT_REFERENCE_LOCK_PROMPT =
+    "Use the attached reference image as the exact identity of the character. Keep the same face shape, facial features, eye shape and color, eyebrows, nose, lips, hairstyle, hair color, skin tone and apparent age as the reference. Do not redesign or beautify the face. Only change pose, expression, clothing, camera angle and background as described below.";
+
 export const DEFAULT_IMAGE_GENERATION_SETTINGS: ImageGenerationSettings = {
     enabled: false,
     provider: "openai",
@@ -702,6 +705,7 @@ export const DEFAULT_IMAGE_GENERATION_SETTINGS: ImageGenerationSettings = {
     characterExtraPrompt: "",
     characterPrompts: {},
     userExtraPrompt: "",
+    referenceLockPrompt: DEFAULT_REFERENCE_LOCK_PROMPT,
     userTriggerKeywords: "合照,合影,妻主",
     imageHosting: {
         provider: "none",
@@ -819,6 +823,7 @@ function normalizeImageGenerationSettings(settings: Partial<ImageGenerationSetti
             ? Object.fromEntries(Object.entries(settings.characterPrompts).filter(([, v]) => typeof v === "string"))
             : {},
         userExtraPrompt: typeof settings?.userExtraPrompt === "string" ? settings.userExtraPrompt : "",
+        referenceLockPrompt: typeof settings?.referenceLockPrompt === "string" ? settings.referenceLockPrompt : DEFAULT_REFERENCE_LOCK_PROMPT,
         userTriggerKeywords: typeof settings?.userTriggerKeywords === "string"
             ? settings.userTriggerKeywords
             : DEFAULT_IMAGE_GENERATION_SETTINGS.userTriggerKeywords,

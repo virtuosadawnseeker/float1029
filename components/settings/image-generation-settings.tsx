@@ -882,6 +882,16 @@ export function ImageGenerationSettings() {
                             />
                         </div>
                         <div className="flex flex-col gap-1">
+                            <label className="menu-desc ml-1">参考图锁脸指令</label>
+                            <Textarea
+                                value={settings.referenceLockPrompt || ""}
+                                onChange={(event) => persist({ ...settings, referenceLockPrompt: event.target.value })}
+                                placeholder="使用参考图生图时，会加在提示词最前面，用来要求模型保持参考图里的脸。留空则不加。"
+                                rows={4}
+                            />
+                            <p className="menu-desc ml-1 opacity-70">仅在这张图使用了角色参考图时生效。</p>
+                        </div>
+                        <div className="flex flex-col gap-1">
                             <label className="menu-desc ml-1">用户触发词</label>
                             <Input
                                 value={settings.userTriggerKeywords || ""}
