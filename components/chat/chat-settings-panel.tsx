@@ -38,7 +38,7 @@ import { triggerDeleteFriendReaction } from "@/lib/friend-request-engine";
 import { loadCharacters } from "@/lib/character-storage";
 import { isAgentComputerConfigured } from "@/lib/agent-computer";
 import { CharacterComputerPage } from "./character-computer-page";
-import { resolveUserIdentity, loadBindingConfig, loadPresets, resolveBinding } from "@/lib/settings-storage";
+import { resolveUserIdentity, resolveGroupUserIdentity, loadUserIdentities, loadBindingConfig, loadPresets, resolveBinding } from "@/lib/settings-storage";
 import { getStatusRegionConfig, saveStatusRegionConfig, presetSupportsStatusRegion, isCustomStatusRegionActive, STATUS_REGION_SCHEME_TARGET, STATUS_REGION_UPDATED_EVENT, type StatusRegionConfig } from "@/lib/chat-status-region";
 import { downloadFile } from "@/lib/download-utils";
 import { getSchemes, saveScheme, deleteScheme, type CSSScheme } from "@/lib/css-scheme-storage";
@@ -49,7 +49,7 @@ import { BINDING_ACCENTS, CONTENT_APP_ACCENTS } from "@/lib/ui-accent-colors";
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { CHAT_SESSION_CSS_EXAMPLE } from "@/lib/css-examples";
-import { Toggle, Input } from "@/components/ui/form";
+import { Toggle, Input, Select } from "@/components/ui/form";
 import { PageShell } from "@/components/ui/page-shell";
 
 // 自定义状态栏预填模板：微博主页（契约=「状态栏」章节整段正文，含【逻辑】【格式】与包裹要求）
@@ -524,7 +524,7 @@ export function ChatSettingsPanel({
     const groupChars = session.isGroup
         ? (session.participantIds || []).map(id => characters.find(c => c.id === id)).filter(Boolean)
         : [];
-    const userIdentity = resolveUserIdentity(undefined, session.isGroup ? "group_chat" : "chat");
+    const userIdentity = session.isGroup ? resolveGroupUserIdentity(session) : resolveUserIdentity(undefined, "chat");
 
     // ── Group member management ──
     const [, setRosterVersion] = useState(0); // bump to re-render after admin actions
@@ -532,6 +532,7 @@ export function ChatSettingsPanel({
     const [mutePickerKey, setMutePickerKey] = useState<string | null>(null);
     const [showInvitePicker, setShowInvitePicker] = useState(false);
     const [allowAdminOnUser, setAllowAdminOnUser] = useState(session.allowAdminActionsOnUser === true);
+    const [groupIdentityId, setGroupIdentityId] = useState(session.userIdentityId || "");
     if (session.isGroup) pruneExpiredGroupMutes(session);
     const userName = userIdentity?.name || "用户";
     const ownerKey = session.isGroup ? getGroupOwnerKey(session) : "";
@@ -903,6 +904,26 @@ export function ChatSettingsPanel({
                                 <div className="menu-label-group"><span className="menu-label">拉人进群</span></div>
                                 <div className="menu-right"><ChevronRight size={16} /></div>
                             </button>
+                        )}
+                        {!session.isSpectator && (
+                            <div className="menu-item">
+                                <ChatInfoIcon icon={Users} color={BINDING_ACCENTS.memory} />
+                                <div className="menu-label-group">
+                                    <span className="menu-label">我在本群的身份</span>
+                                    <span className="menu-desc">只对这个群生效；选「跟随全局」则沿用设置里的群聊绑定</span>
+                                </div>
+                                <div className="menu-right">
+                                    <Select
+                                        value={groupIdentityId}
+                                        onChange={e => { setGroupIdentityId(e.target.value); updateSession({ userIdentityId: e.target.value || undefined }); }}
+                                    >
+                                        <option value="">跟随全局</option>
+                                        {loadUserIdentities().map(identity => (
+                                            <option key={identity.id} value={identity.id}>{identity.name}</option>
+                                        ))}
+                                    </Select>
+                                </div>
+                            </div>
                         )}
                         {!session.isSpectator && (
                             <div className="menu-item">

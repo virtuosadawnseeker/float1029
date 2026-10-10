@@ -1083,6 +1083,19 @@ export function resolveAuxiliaryApiConfig(
     return null;
 }
 
+/**
+ * 群聊里的用户身份：优先使用该群自己绑定的身份（session.userIdentityId），
+ * 找不到（未设置或身份已被删除）时退回「全局 → 群聊应用」级联，与旧行为一致。
+ */
+export function resolveGroupUserIdentity(session?: { userIdentityId?: string } | null): UserIdentity | null {
+    const bound = session?.userIdentityId;
+    if (bound) {
+        const found = loadUserIdentities().find(identity => identity.id === bound);
+        if (found) return found;
+    }
+    return resolveUserIdentity(undefined, "group_chat");
+}
+
 // --- Migration from legacy CharacterSettingsOverride ---
 
 type LegacyOverride = {
