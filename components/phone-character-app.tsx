@@ -2558,15 +2558,17 @@ function CharArchiveView({
                     />
                     <input
                       type="number" inputMode="numeric" min={1} max={12}
-                      value={item.month}
-                      onChange={e => patchSpecialDay(item.id, { month: Number(e.target.value) })}
+                      value={item.month || ""}
+                      onChange={e => patchSpecialDay(item.id, { month: e.target.value === "" ? 0 : Number(e.target.value) })}
+                      placeholder="月"
                       style={{ width: 46, background: "transparent", border: "1px dashed #666", padding: "2px 4px" }}
                     />
                     <span>月</span>
                     <input
                       type="number" inputMode="numeric" min={1} max={31}
-                      value={item.day}
-                      onChange={e => patchSpecialDay(item.id, { day: Number(e.target.value) })}
+                      value={item.day || ""}
+                      onChange={e => patchSpecialDay(item.id, { day: e.target.value === "" ? 0 : Number(e.target.value) })}
+                      placeholder="日"
                       style={{ width: 46, background: "transparent", border: "1px dashed #666", padding: "2px 4px" }}
                     />
                     <span>日</span>
