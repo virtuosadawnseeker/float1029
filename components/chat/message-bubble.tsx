@@ -45,6 +45,8 @@ interface MessageBubbleProps {
     onActionSelect?: (text: string) => void;
     displayContent?: string;
     defaultTranslationExpanded?: boolean;
+    /** 语音条没有绑定语音 API 时，点击气泡改为展开/收起转文字 */
+    onToggleVoiceText?: (msgId: string) => void;
 }
 
 /** 聊天插件自定义消息气泡：把裸 DOM 容器交给注册了该 kind 的插件渲染 */
@@ -88,7 +90,7 @@ function PluginKindBubble({ msg, kind }: { msg: ChatMessage; kind: string }) {
  * Renders a message bubble based on its mediaType.
  * Falls back to ReactMarkdown for plain text messages.
  */
-export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charName, userName, onSystemMessage, groupSize, onShowDetail, characterId, onMusicPlay, onActionSelect, displayContent, defaultTranslationExpanded = false }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charName, userName, onSystemMessage, groupSize, onShowDetail, characterId, onMusicPlay, onActionSelect, displayContent, defaultTranslationExpanded = false, onToggleVoiceText }: MessageBubbleProps) {
     switch (msg.mediaType) {
         case "red_packet":
             return <RedPacketBubble msg={msg} charName={charName} userName={userName} groupSize={groupSize} onShowDetail={onShowDetail} />;
@@ -121,7 +123,7 @@ export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charNa
         case "xiaohongshu_note_share":
             return <XiaohongshuShareBubble msg={msg} />;
         case "audio":
-            return <VoiceMessageBubble msg={msg} characterId={characterId} onUpdate={onUpdate} defaultTranslationExpanded={defaultTranslationExpanded} />;
+            return <VoiceMessageBubble msg={msg} characterId={characterId} onUpdate={onUpdate} defaultTranslationExpanded={defaultTranslationExpanded} onToggleVoiceText={onToggleVoiceText} />;
         default: {
             // 聊天插件自定义消息类型：mediaType = "plugin:<kind>"，由注册插件渲染
             if (msg.mediaType?.startsWith("plugin:")) {
@@ -2287,7 +2289,7 @@ function synthesizeVoiceForMessage(msgId: string, characterId: string, speechTex
     return task;
 }
 
-function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpanded = false }: { msg: ChatMessage; characterId?: string; onUpdate?: (m: ChatMessage) => void; defaultTranslationExpanded?: boolean }) {
+function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpanded = false, onToggleVoiceText }: { msg: ChatMessage; characterId?: string; onUpdate?: (m: ChatMessage) => void; defaultTranslationExpanded?: boolean; onToggleVoiceText?: (msgId: string) => void }) {
     const [playing, setPlaying] = useState(false);
     const [synthesizing, setSynthesizing] = useState(false);
     const [synthFailed, setSynthFailed] = useState(false);
@@ -2337,20 +2339,33 @@ function VoiceMessageBubble({ msg, characterId, onUpdate, defaultTranslationExpa
             if (msg.mediaUrl) playSrc(msg.mediaUrl);
             return;
         }
-        setSynthesizing(true);
-        setSynthFailed(false);
-        synthesizeVoiceForMessage(msg.id, characterId, speechText)
-            .then((dataUrl) => {
-                if (onUpdate) onUpdate({ ...msg, mediaUrl: dataUrl, mediaData: { ...msg.mediaData, synthesizedFromText: speechText } });
-                if (!mountedRef.current) return;
-                setSynthesizing(false);
-                playSrc(dataUrl);
-            })
-            .catch(() => {
-                if (!mountedRef.current) return;
-                setSynthesizing(false);
-                setSynthFailed(true);
-            });
+        const charId: string = characterId;
+        const startSynthesis = () => {
+            setSynthesizing(true);
+            setSynthFailed(false);
+            synthesizeVoiceForMessage(msg.id, charId, speechText)
+                .then((dataUrl) => {
+                    if (onUpdate) onUpdate({ ...msg, mediaUrl: dataUrl, mediaData: { ...msg.mediaData, synthesizedFromText: speechText } });
+                    if (!mountedRef.current) return;
+                    setSynthesizing(false);
+                    playSrc(dataUrl);
+                })
+                .catch(() => {
+                    if (!mountedRef.current) return;
+                    setSynthesizing(false);
+                    setSynthFailed(true);
+                });
+        };
+        // 没有绑定语音配置时不去合成（只会报错），改为点一下展开/收起转文字
+        if (!onToggleVoiceText) {
+            startSynthesis();
+            return;
+        }
+        void import("@/lib/tts-service").then(({ resolveVoiceConfig }) => {
+            if (!mountedRef.current) return;
+            if (resolveVoiceConfig(charId)) startSynthesis();
+            else onToggleVoiceText(msg.id);
+        }).catch(() => startSynthesis());
     };
 
     useEffect(() => () => { audioRef.current?.pause(); }, []);
