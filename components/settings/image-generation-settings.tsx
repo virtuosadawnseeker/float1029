@@ -1053,6 +1053,19 @@ export function ImageGenerationSettings() {
                         <span className="leading-[1.5]">图片描述里出现用户身份的姓名或触发词时，会把对应身份的参考图和角色参考图一起发给生图模型（需要中转站的 gpt-image 支持多张参考图）。想关掉，删除这张参考图即可。</span>
                     </Alert>
                     <div className="menu-group">
+                        <div className="menu-item">
+                            <span className="min-w-0 flex flex-1 flex-col">
+                                <span className="menu-label">提到姓名也附上参考图</span>
+                                <span className="menu-desc">关闭后只在描述里出现「用户触发词」时才附上（姓名仍会触发外貌词）。</span>
+                            </span>
+                            <span className="menu-right settings-tools-menu-toggle">
+                                <Toggle
+                                    checked={settings.userReferenceByName !== false}
+                                    onChange={(userReferenceByName) => persist({ ...settings, userReferenceByName })}
+                                    className="settings-toggle-control"
+                                />
+                            </span>
+                        </div>
                         {userIdentities.length === 0 ? (
                             <div className="ui-empty py-8">
                                 <Camera size={22} />

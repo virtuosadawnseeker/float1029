@@ -709,8 +709,9 @@ export const DEFAULT_IMAGE_GENERATION_SETTINGS: ImageGenerationSettings = {
     characterPrompts: {},
     userExtraPrompt: "",
     referenceLockPrompt: DEFAULT_REFERENCE_LOCK_PROMPT,
-    userTriggerKeywords: "合照,合影,妻主",
+    userTriggerKeywords: "合照,合影,妻主,我的照片,你的照片",
     userReferences: {},
+    userReferenceByName: true,
     userReferencePrompt: DEFAULT_USER_REFERENCE_PROMPT,
     imageHosting: {
         provider: "none",
@@ -837,6 +838,7 @@ function normalizeImageGenerationSettings(settings: Partial<ImageGenerationSetti
                 ([, v]) => v && typeof v === "object" && typeof (v as { assetId?: unknown }).assetId === "string" && (v as { assetId: string }).assetId,
             ))
             : {},
+        userReferenceByName: settings?.userReferenceByName !== false,
         userReferencePrompt: typeof settings?.userReferencePrompt === "string" ? settings.userReferencePrompt : DEFAULT_USER_REFERENCE_PROMPT,
         imageHosting: {
             ...DEFAULT_IMAGE_GENERATION_SETTINGS.imageHosting,

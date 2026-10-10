@@ -260,6 +260,8 @@ export type ImageGenerationSettings = {
         assetId: string;
         updatedAt: number;
     }>;
+    /** 图片描述里出现用户姓名时，是否也附上用户参考图（默认开；关掉后只认触发词）。 */
+    userReferenceByName?: boolean;
     /** 同时带用户参考图时，说明哪张图是谁；留空则不加。 */
     userReferencePrompt?: string;
     imageHosting: ImageHostingSettings;

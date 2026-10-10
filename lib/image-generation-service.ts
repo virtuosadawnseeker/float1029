@@ -84,7 +84,7 @@ function collectAppearanceParts(description: string, characterId: string | undef
 function detectUserMention(
   description: string,
   settings: ImageGenerationSettings,
-): { mentioned: boolean; namedIdentityIds: string[] } {
+): { mentioned: boolean; keywordHit: boolean; namedIdentityIds: string[] } {
   const namedIdentityIds: string[] = [];
   let keywordHit = false;
   for (const item of (settings.userTriggerKeywords || "").split(/[,，、\n]/)) {
@@ -102,7 +102,7 @@ function detectUserMention(
   } catch {
     // 读取用户身份失败时只使用手动触发词
   }
-  return { mentioned: keywordHit || namedIdentityIds.length > 0, namedIdentityIds };
+  return { mentioned: keywordHit || namedIdentityIds.length > 0, keywordHit, namedIdentityIds };
 }
 
 /**
@@ -116,10 +116,13 @@ function pickUserReferenceAssetId(
 ): string | null {
   const refs = settings.userReferences || {};
   if (Object.keys(refs).length === 0) return null;
-  const { mentioned, namedIdentityIds } = detectUserMention(description, settings);
-  if (!mentioned) return null;
-  for (const id of namedIdentityIds) {
-    if (refs[id]?.assetId) return refs[id].assetId;
+  const { keywordHit, namedIdentityIds } = detectUserMention(description, settings);
+  const allowName = settings.userReferenceByName !== false;
+  if (!keywordHit && !(allowName && namedIdentityIds.length > 0)) return null;
+  if (allowName) {
+    for (const id of namedIdentityIds) {
+      if (refs[id]?.assetId) return refs[id].assetId;
+    }
   }
   try {
     const bound = resolveUserIdentity(characterId, "chat");
