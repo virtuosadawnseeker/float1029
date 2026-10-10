@@ -1,5 +1,5 @@
 import type { ImageGenerationSettings, NovelAiPreset } from "./settings-types";
-import { loadImageGenerationSettings, loadUserIdentities, DEFAULT_NOVELAI_PRESET } from "./settings-storage";
+import { loadImageGenerationSettings, loadUserIdentities, resolveUserIdentity, DEFAULT_NOVELAI_PRESET } from "./settings-storage";
 import JSZip from "jszip";
 import { getChatImageFromIndexedDB } from "./chat-asset-storage";
 import { storeMediaBlob } from "./media-cache-storage";
@@ -71,27 +71,69 @@ function collectAppearanceParts(description: string, characterId: string | undef
     else if (fallback) parts.push(fallback);
   }
   const userPrompt = settings.userExtraPrompt?.trim();
-  if (userPrompt) {
-    const triggers = new Set<string>();
-    for (const item of (settings.userTriggerKeywords || "").split(/[,，、\n]/)) {
-      const word = item.trim();
-      if (word) triggers.add(word);
-    }
-    try {
-      for (const identity of loadUserIdentities()) {
-        if (identity.name?.trim()) triggers.add(identity.name.trim());
-      }
-    } catch {
-      // 读取用户身份失败时只使用手动触发词
-    }
-    for (const word of triggers) {
-      if (description.includes(word)) {
-        parts.push(userPrompt);
-        break;
-      }
-    }
+  if (userPrompt && detectUserMention(description, settings).mentioned) {
+    parts.push(userPrompt);
   }
   return parts;
+}
+
+/**
+ * 图片描述是否提到了用户：用户身份的姓名，或手动填写的触发词。
+ * namedIdentityIds 是描述里直接出现了姓名的用户身份。
+ */
+function detectUserMention(
+  description: string,
+  settings: ImageGenerationSettings,
+): { mentioned: boolean; keywordHit: boolean; namedIdentityIds: string[] } {
+  const namedIdentityIds: string[] = [];
+  let keywordHit = false;
+  for (const item of (settings.userTriggerKeywords || "").split(/[,，、\n]/)) {
+    const word = item.trim();
+    if (word && description.includes(word)) {
+      keywordHit = true;
+      break;
+    }
+  }
+  try {
+    for (const identity of loadUserIdentities()) {
+      const name = identity.name?.trim();
+      if (name && description.includes(name)) namedIdentityIds.push(identity.id);
+    }
+  } catch {
+    // 读取用户身份失败时只使用手动触发词
+  }
+  return { mentioned: keywordHit || namedIdentityIds.length > 0, keywordHit, namedIdentityIds };
+}
+
+/**
+ * 找出这张图应该附上哪位用户身份的参考图：
+ * 描述里直接出现姓名的身份优先；只命中触发词时用该角色当前绑定的身份；再不行用第一个有参考图的身份。
+ */
+function pickUserReferenceAssetId(
+  description: string,
+  characterId: string | undefined,
+  settings: ImageGenerationSettings,
+): string | null {
+  const refs = settings.userReferences || {};
+  if (Object.keys(refs).length === 0) return null;
+  const { keywordHit, namedIdentityIds } = detectUserMention(description, settings);
+  const allowName = settings.userReferenceByName !== false;
+  if (!keywordHit && !(allowName && namedIdentityIds.length > 0)) return null;
+  if (allowName) {
+    for (const id of namedIdentityIds) {
+      if (refs[id]?.assetId) return refs[id].assetId;
+    }
+  }
+  try {
+    const bound = resolveUserIdentity(characterId, "chat");
+    if (bound && refs[bound.id]?.assetId) return refs[bound.id].assetId;
+  } catch {
+    // 忽略，继续回落
+  }
+  for (const ref of Object.values(refs)) {
+    if (ref?.assetId) return ref.assetId;
+  }
+  return null;
 }
 
 function base64ToBlob(b64: string, mimeType: string): Blob {
@@ -362,11 +404,13 @@ async function generateImageDirect(params: {
   settings: ImageGenerationSettings;
   prompt: string;
   referenceImageDataUrl: string | null;
+  /** 第一张参考图之外追加的参考图（例如用户本人）；有追加时 edits 请求改用 image[] 字段 */
+  extraReferenceImageDataUrls?: string[];
   signal?: AbortSignal;
   /** 走通用代理:请求发往代理地址,真实上游放进 x-upstream-base-url 头 */
   proxyBaseUrl?: string;
 }): Promise<ImageGenerationApiResponse> {
-  const { settings, prompt, referenceImageDataUrl, signal, proxyBaseUrl } = params;
+  const { settings, prompt, referenceImageDataUrl, extraReferenceImageDataUrls, signal, proxyBaseUrl } = params;
   throwIfAborted(signal);
   const hasReference = Boolean(referenceImageDataUrl);
   const url = buildImageUrl(proxyBaseUrl || settings.baseUrl, hasReference ? "edits" : "generations");
@@ -377,12 +421,22 @@ async function generateImageDirect(params: {
   if (hasReference) {
     const converted = dataUrlToBlob(referenceImageDataUrl || "");
     if (!converted) throw new Error("参考图格式无效");
+    const extras = (extraReferenceImageDataUrls || []).map(url => dataUrlToBlob(url));
+    if (extras.some(item => !item)) throw new Error("参考图格式无效");
     const form = new FormData();
     form.set("model", settings.model);
     form.set("prompt", prompt);
     if (settings.size && settings.size !== "auto") form.set("size", settings.size);
     if (settings.quality && settings.quality !== "auto") form.set("quality", settings.quality);
-    form.append("image", converted.blob, `reference.${imageExtension(converted.mimeType)}`);
+    if (extras.length > 0) {
+      // 多张参考图：OpenAI 的 images/edits 用重复的 image[] 字段
+      form.append("image[]", converted.blob, `reference-1.${imageExtension(converted.mimeType)}`);
+      extras.forEach((item, index) => {
+        if (item) form.append("image[]", item.blob, `reference-${index + 2}.${imageExtension(item.mimeType)}`);
+      });
+    } else {
+      form.append("image", converted.blob, `reference.${imageExtension(converted.mimeType)}`);
+    }
     body = form;
   } else {
     headers["Content-Type"] = "application/json";
@@ -430,6 +484,7 @@ async function generateImageViaServerOrProxy(params: {
   settings: ImageGenerationSettings;
   prompt: string;
   referenceImageDataUrl: string | null;
+  extraReferenceImageDataUrls?: string[];
   signal?: AbortSignal;
 }): Promise<ImageGenerationApiResponse> {
   if (IMAGE_GEN_PROXY_URL) {
@@ -463,9 +518,10 @@ async function generateImageViaServer(params: {
   settings: ImageGenerationSettings;
   prompt: string;
   referenceImageDataUrl: string | null;
+  extraReferenceImageDataUrls?: string[];
   signal?: AbortSignal;
 }): Promise<ImageGenerationApiResponse> {
-  const { settings, prompt, referenceImageDataUrl, signal } = params;
+  const { settings, prompt, referenceImageDataUrl, extraReferenceImageDataUrls, signal } = params;
   throwIfAborted(signal);
   // 防"无限卡住":函数被平台中途击杀时流可能既不关闭也不报错。
   // 总超时 180s + 断流检测(心跳每 3s 一个字节,超过 25s 没有任何字节视为断流)。
@@ -488,6 +544,9 @@ async function generateImageViaServer(params: {
         size: settings.size,
         quality: settings.quality,
         referenceImageDataUrl: referenceImageDataUrl || undefined,
+        extraReferenceImageDataUrls: extraReferenceImageDataUrls && extraReferenceImageDataUrls.length > 0
+          ? extraReferenceImageDataUrls
+          : undefined,
       }),
     });
     throwIfAborted(signal);
@@ -823,20 +882,34 @@ export async function generateImageFromConfiguredApi(params: {
     ? await getChatImageFromIndexedDB(reference.assetId)
     : null;
   throwIfAborted(params.signal);
-  const referenceImageDataUrl = rawReferenceImageDataUrl
+  const characterReferenceDataUrl = rawReferenceImageDataUrl
     ? await normalizeReferenceImageForEdit(rawReferenceImageDataUrl)
     : null;
   throwIfAborted(params.signal);
+
+  // 用户参考图：描述提到用户（姓名/触发词）时附上；排在角色参考图之后
+  const userAssetId = pickUserReferenceAssetId(description, params.characterId, settings);
+  const rawUserReferenceDataUrl = userAssetId ? await getChatImageFromIndexedDB(userAssetId) : null;
+  const userReferenceDataUrl = rawUserReferenceDataUrl
+    ? await normalizeReferenceImageForEdit(rawUserReferenceDataUrl)
+    : null;
+  throwIfAborted(params.signal);
+
+  const referenceImages = [characterReferenceDataUrl, userReferenceDataUrl].filter((item): item is string => Boolean(item));
+  const referenceImageDataUrl = referenceImages[0] ?? null;
+  const extraReferenceImageDataUrls = referenceImages.slice(1);
   const lockPrompt = referenceImageDataUrl ? (settings.referenceLockPrompt || "").trim() : "";
+  const userReferencePrompt = userReferenceDataUrl ? (settings.userReferencePrompt || "").trim() : "";
   const prompt = [
     ...(lockPrompt ? [lockPrompt] : []),
+    ...(userReferencePrompt ? [userReferencePrompt] : []),
     mergePrompt(description, openaiSettings.extraPrompt),
     ...collectAppearanceParts(description, params.characterId, settings),
   ].join("\n\n");
 
   const data = openaiSettings.requestMode === "direct"
-    ? await generateImageDirect({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal })
-    : await generateImageViaServerOrProxy({ settings: openaiSettings, prompt, referenceImageDataUrl, signal: params.signal });
+    ? await generateImageDirect({ settings: openaiSettings, prompt, referenceImageDataUrl, extraReferenceImageDataUrls, signal: params.signal })
+    : await generateImageViaServerOrProxy({ settings: openaiSettings, prompt, referenceImageDataUrl, extraReferenceImageDataUrls, signal: params.signal });
 
   throwIfAborted(params.signal);
   const mimeType = data.mimeType || "image/png";

@@ -25,6 +25,7 @@ type ImageGenerationRequest = {
   size?: string;
   quality?: string;
   referenceImageDataUrl?: string;
+  extraReferenceImageDataUrls?: string[];
   // NovelAI 专属参数
   negativePrompt?: string;
   steps?: number;
@@ -315,12 +316,23 @@ async function runImageGeneration(input: ImageGenerationRequest): Promise<{ stat
     if (hasReference) {
       const converted = dataUrlToBlob(input.referenceImageDataUrl || "");
       if (!converted) return { status: 400, body: { error: "参考图格式无效" } };
+      const extras = (Array.isArray(input.extraReferenceImageDataUrls) ? input.extraReferenceImageDataUrls : [])
+        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        .map(item => dataUrlToBlob(item));
+      if (extras.some(item => !item)) return { status: 400, body: { error: "参考图格式无效" } };
       const form = new FormData();
       form.set("model", model);
       form.set("prompt", prompt);
       if (input.size && input.size !== "auto") form.set("size", input.size);
       if (input.quality && input.quality !== "auto") form.set("quality", input.quality);
-      form.append("image", converted.blob, `reference.${converted.mimeType.split("/")[1] || "png"}`);
+      if (extras.length > 0) {
+        form.append("image[]", converted.blob, `reference-1.${converted.mimeType.split("/")[1] || "png"}`);
+        extras.forEach((item, index) => {
+          if (item) form.append("image[]", item.blob, `reference-${index + 2}.${item.mimeType.split("/")[1] || "png"}`);
+        });
+      } else {
+        form.append("image", converted.blob, `reference.${converted.mimeType.split("/")[1] || "png"}`);
+      }
       body = form;
     } else {
       headers["Content-Type"] = "application/json";

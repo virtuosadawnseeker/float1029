@@ -255,6 +255,15 @@ export type ImageGenerationSettings = {
     referenceLockPrompt?: string;
     /** 额外触发词，逗号/顿号/换行分隔；用户身份的姓名会自动作为触发词。 */
     userTriggerKeywords?: string;
+    /** 用户身份的参考图（按用户身份 id）：图片描述触发到用户时，与角色参考图一起发给生图模型。 */
+    userReferences?: Record<string, {
+        assetId: string;
+        updatedAt: number;
+    }>;
+    /** 图片描述里出现用户姓名时，是否也附上用户参考图（默认开；关掉后只认触发词）。 */
+    userReferenceByName?: boolean;
+    /** 同时带用户参考图时，说明哪张图是谁；留空则不加。 */
+    userReferencePrompt?: string;
     imageHosting: ImageHostingSettings;
 };
 
