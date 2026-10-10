@@ -7,8 +7,10 @@ import {
     DEFAULT_IMAGE_GENERATION_SETTINGS,
     DEFAULT_NOVELAI_PRESET,
     loadImageGenerationSettings,
+    loadUserIdentities,
     saveImageGenerationSettings,
 } from "@/lib/settings-storage";
+import type { UserIdentity } from "@/components/settings/user-identity";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
 import { getChatImageFromIndexedDB, saveChatImageToIndexedDB } from "@/lib/chat-asset-storage";
@@ -67,6 +69,8 @@ export function ImageGenerationSettings() {
     const [settings, setSettings] = useState<ImageGenerationSettingsType>(DEFAULT_IMAGE_GENERATION_SETTINGS);
     const [characters, setCharacters] = useState<Character[]>([]);
     const [referencePreviews, setReferencePreviews] = useState<Record<string, string>>({});
+    const [userIdentities, setUserIdentities] = useState<UserIdentity[]>([]);
+    const [userReferencePreviews, setUserReferencePreviews] = useState<Record<string, string>>({});
     const [models, setModels] = useState<string[]>([]);
     const [isFetchingModels, setIsFetchingModels] = useState(false);
     const [naiModels, setNaiModels] = useState<string[]>(NOVELAI_COMMON_MODELS);
@@ -108,6 +112,7 @@ export function ImageGenerationSettings() {
             setSettings(loaded);
         }
         setCharacters(loadCharacters());
+        setUserIdentities(loadUserIdentities());
     }, []);
 
     useEffect(() => {
@@ -126,6 +131,23 @@ export function ImageGenerationSettings() {
         });
         return () => { cancelled = true; };
     }, [settings.characterReferences]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const refs = settings.userReferences || {};
+        Promise.all(Object.entries(refs).map(async ([identityId, ref]) => {
+            const dataUrl = ref.assetId ? await getChatImageFromIndexedDB(ref.assetId) : null;
+            return [identityId, dataUrl] as const;
+        })).then(entries => {
+            if (cancelled) return;
+            const next: Record<string, string> = {};
+            for (const [identityId, dataUrl] of entries) {
+                if (dataUrl) next[identityId] = dataUrl;
+            }
+            setUserReferencePreviews(next);
+        });
+        return () => { cancelled = true; };
+    }, [settings.userReferences]);
 
     useEffect(() => {
         return () => {
@@ -311,6 +333,28 @@ export function ImageGenerationSettings() {
                 ...(settings.characterReferences || {}),
                 [characterId]: { assetId, updatedAt: Date.now() },
             },
+        });
+    };
+
+    const uploadUserReference = async (identityId: string, file: File) => {
+        const assetId = await saveChatImageToIndexedDB(file);
+        persist({
+            ...settings,
+            userReferences: {
+                ...(settings.userReferences || {}),
+                [identityId]: { assetId, updatedAt: Date.now() },
+            },
+        });
+    };
+
+    const removeUserReference = (identityId: string) => {
+        const nextRefs = { ...(settings.userReferences || {}) };
+        delete nextRefs[identityId];
+        persist({ ...settings, userReferences: nextRefs });
+        setUserReferencePreviews(prev => {
+            const next = { ...prev };
+            delete next[identityId];
+            return next;
         });
     };
 
@@ -892,6 +936,16 @@ export function ImageGenerationSettings() {
                             <p className="menu-desc ml-1 opacity-70">仅在这张图使用了角色参考图时生效。</p>
                         </div>
                         <div className="flex flex-col gap-1">
+                            <label className="menu-desc ml-1">用户参考图说明</label>
+                            <Textarea
+                                value={settings.userReferencePrompt || ""}
+                                onChange={(event) => persist({ ...settings, userReferencePrompt: event.target.value })}
+                                placeholder="同时附上用户参考图时，用来告诉模型哪张图是谁。留空则不加。"
+                                rows={4}
+                            />
+                            <p className="menu-desc ml-1 opacity-70">仅在这张图附上了用户参考图时生效。约定：用户的图永远排在最后，角色的图在前。</p>
+                        </div>
+                        <div className="flex flex-col gap-1">
                             <label className="menu-desc ml-1">用户触发词</label>
                             <Input
                                 value={settings.userTriggerKeywords || ""}
@@ -984,6 +1038,73 @@ export function ImageGenerationSettings() {
                                         </button>
                                     )}
                                 </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {settings.provider !== "novelai" && (
+                <div className="flex flex-col gap-2">
+                    <p className="settings-menu-section-title">User References</p>
+                    <Alert variant="info">
+                        <Info size={16} className="mt-[2px] shrink-0" />
+                        <span className="leading-[1.5]">图片描述里出现用户身份的姓名或触发词时，会把对应身份的参考图和角色参考图一起发给生图模型（需要中转站的 gpt-image 支持多张参考图）。想关掉，删除这张参考图即可。</span>
+                    </Alert>
+                    <div className="menu-group">
+                        {userIdentities.length === 0 ? (
+                            <div className="ui-empty py-8">
+                                <Camera size={22} />
+                                <span className="menu-desc">暂无用户身份。</span>
+                            </div>
+                        ) : userIdentities.map(identity => {
+                            const preview = userReferencePreviews[identity.id];
+                            return (
+                                <div key={identity.id} className="menu-item">
+                                    <span className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-[var(--c-input)]">
+                                        {preview ? (
+                                            <img src={preview} alt="" className="h-full w-full object-cover" />
+                                        ) : (
+                                            <span className="flex h-full w-full items-center justify-center ts-13 font-semibold text-[var(--c-icon)]">
+                                                {(identity.name || "?").slice(0, 1)}
+                                            </span>
+                                        )}
+                                    </span>
+                                    <span className="min-w-0 flex flex-1 flex-col">
+                                        <span className="menu-label truncate">{identity.name || "未命名身份"}</span>
+                                        <span className="menu-desc truncate">{preview ? "已上传参考图" : "未上传参考图"}</span>
+                                    </span>
+                                    <span className="menu-right flex gap-2">
+                                        <button
+                                            type="button"
+                                            className="ui-link-btn"
+                                            aria-label={`上传 ${identity.name} 的参考图`}
+                                            onClick={() => {
+                                                const input = document.createElement("input");
+                                                input.type = "file";
+                                                input.accept = "image/*";
+                                                input.onchange = async () => {
+                                                    const file = input.files?.[0];
+                                                    if (file) await uploadUserReference(identity.id, file);
+                                                };
+                                                input.click();
+                                            }}
+                                        >
+                                            <Upload size={18} />
+                                        </button>
+                                        {preview && (
+                                            <button
+                                                type="button"
+                                                className="ui-link-btn"
+                                                data-variant="danger"
+                                                aria-label={`删除 ${identity.name} 的参考图`}
+                                                onClick={() => removeUserReference(identity.id)}
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        )}
+                                    </span>
                                 </div>
                             );
                         })}

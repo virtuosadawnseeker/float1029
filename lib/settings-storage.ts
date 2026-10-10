@@ -686,6 +686,9 @@ export const DEFAULT_NOVELAI_PRESET: import("./settings-types").NovelAiPreset = 
 export const DEFAULT_REFERENCE_LOCK_PROMPT =
     "Use the attached reference image as the exact identity of the character. Keep the same face shape, facial features, eye shape and color, eyebrows, nose, lips, hairstyle, hair color, skin tone and apparent age as the reference. Do not redesign or beautify the face. Only change pose, expression, clothing, camera angle and background as described below.";
 
+export const DEFAULT_USER_REFERENCE_PROMPT =
+    "The last attached reference image is the user herself, and any earlier reference image is the character. Keep each person's own face, hairstyle, skin tone, body type and gender exactly as in their own reference. Do not blend the two people's features or swap their genders.";
+
 export const DEFAULT_IMAGE_GENERATION_SETTINGS: ImageGenerationSettings = {
     enabled: false,
     provider: "openai",
@@ -707,6 +710,8 @@ export const DEFAULT_IMAGE_GENERATION_SETTINGS: ImageGenerationSettings = {
     userExtraPrompt: "",
     referenceLockPrompt: DEFAULT_REFERENCE_LOCK_PROMPT,
     userTriggerKeywords: "合照,合影,妻主",
+    userReferences: {},
+    userReferencePrompt: DEFAULT_USER_REFERENCE_PROMPT,
     imageHosting: {
         provider: "none",
         imgbbApiKey: "",
@@ -827,6 +832,12 @@ function normalizeImageGenerationSettings(settings: Partial<ImageGenerationSetti
         userTriggerKeywords: typeof settings?.userTriggerKeywords === "string"
             ? settings.userTriggerKeywords
             : DEFAULT_IMAGE_GENERATION_SETTINGS.userTriggerKeywords,
+        userReferences: settings?.userReferences && typeof settings.userReferences === "object"
+            ? Object.fromEntries(Object.entries(settings.userReferences).filter(
+                ([, v]) => v && typeof v === "object" && typeof (v as { assetId?: unknown }).assetId === "string" && (v as { assetId: string }).assetId,
+            ))
+            : {},
+        userReferencePrompt: typeof settings?.userReferencePrompt === "string" ? settings.userReferencePrompt : DEFAULT_USER_REFERENCE_PROMPT,
         imageHosting: {
             ...DEFAULT_IMAGE_GENERATION_SETTINGS.imageHosting,
             ...hosting,
