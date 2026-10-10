@@ -77,6 +77,7 @@ export type ChatSession = {
     groupMutes?: Record<string, string>; // (characterId | "self") → mute expiry ISO
     allowAdminActionsOnUser?: boolean; // characters may kick/mute the user (default off)
     isSpectator?: boolean; // 围观群：用户不在群内，只能生成/线下
+    userIdentityId?: string; // 本群专属用户身份；未设置则沿用「全局 → 群聊应用」绑定
 };
 
 export type ChatMessageStatus = "sending" | "sent" | "read" | "failed";

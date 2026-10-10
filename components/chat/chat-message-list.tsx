@@ -5,7 +5,7 @@ import { ChevronLeft } from "lucide-react";
 import { loadChatSessions, loadChatContacts, ChatSession, createOrGetSession, createGroupSession, pushChatMessage, addChatContact, loadChatMessages, getLastVisibleSessionMessage, getChatMessagePreview } from "@/lib/chat-storage";
 import { loadCharacters } from "@/lib/character-storage";
 import { Character } from "@/lib/character-types";
-import { resolveUserIdentity } from "@/lib/settings-storage";
+import { resolveUserIdentity, resolveGroupUserIdentity } from "@/lib/settings-storage";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import { PENDING_REPLY_PREFIX } from "@/lib/friend-request-engine";
 import { clearRequestsForCharacter, dispatchFriendRequestUpdated } from "@/lib/friend-request-storage";
@@ -761,7 +761,7 @@ function SessionItem({ session, onSelect, isPinned }: { session: ChatSession, on
 
     // Group chat: build grid of participant avatars (2×2)
     const isGroup = session.isGroup;
-    const userIdentity = isGroup ? resolveUserIdentity(undefined, "group_chat") : null;
+    const userIdentity = isGroup ? resolveGroupUserIdentity(session) : null;
     const groupAvatarItems = isGroup
         ? [
             ...(userIdentity ? [{ id: "self", name: userIdentity.name || "我", avatar: userIdentity.avatarUrl || "" }] : []),

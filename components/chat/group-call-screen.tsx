@@ -5,7 +5,7 @@ import { ChatSession, ChatMessage, loadChatMessages, pushChatMessage, getLatestC
 import { getStatusRegionConfig, isCustomStatusRegionActive } from "@/lib/chat-status-region";
 import { generateGroupChatCompletion } from "@/lib/group-chat-engine";
 import { parseAIResponse } from "@/lib/rich-message-parser";
-import { resolveUserIdentity } from "@/lib/settings-storage";
+import { resolveGroupUserIdentity } from "@/lib/settings-storage";
 import { cancelFollowUp } from "@/lib/follow-up-service";
 import { createSTTSession, type STTSession } from "@/lib/stt-service";
 import { resolveVoiceConfig, synthesizeSpeech, playAudioBlob, playAudioBlobViaMediaElement, setCallAudioSessionActive } from "@/lib/tts-service";
@@ -163,7 +163,7 @@ export function GroupCallScreen({ type, session, characters, onEnd, initiator = 
     // ── Init ─────────────────────────────────────────
     useEffect(() => {
         cancelFollowUp(session.id);
-        const ui = resolveUserIdentity(undefined, "group_chat");
+        const ui = resolveGroupUserIdentity(session);
         userNameRef.current = ui?.name || "你";
         userAvatarRef.current = ui?.avatarUrl || null;
         messagesRef.current = loadChatMessages(session.id);
