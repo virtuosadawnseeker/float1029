@@ -85,7 +85,7 @@ export async function runCoreMemoryPipeline(
     const result = await simpleLLMCall(
         apiConfig,
         [{ role: "user", content: prompt }],
-        { temperature: 0.3 },
+        { temperature: 0.3, label: `核心记忆·${characterName}`, stream: true },
     );
 
     if (!result.content) {
