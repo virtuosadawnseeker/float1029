@@ -98,7 +98,7 @@ export function isNativeGoogleApi(config: ApiConfig): boolean {
 export async function simpleLLMCall(
     config: ApiConfig,
     messages: { role: string; content: string }[],
-    options?: { temperature?: number; max_tokens?: number; signal?: AbortSignal; label?: string },
+    options?: { temperature?: number; max_tokens?: number; signal?: AbortSignal; label?: string; stream?: boolean },
 ): Promise<{ content: string | null; error?: string; finishReason?: string; wasTruncated?: boolean }> {
     const baseUrl = determineBaseUrl(config);
     if (!baseUrl || !config.apiKey) {
@@ -108,6 +108,33 @@ export async function simpleLLMCall(
     const headers = buildRequestHeaders(config, baseUrl);
     const temperature = options?.temperature ?? 0.7;
     const max_tokens = options?.max_tokens;
+
+    // 流式优先（调用方 opt-in）：带思考的模型非流式要等很久才返回第一个字节，
+    // 中转站/Safari 常在这段静默期把连接掐断（表现为 "Load failed"）。
+    // 流式失败时退回下面的非流式老路径，并把流式的失败原因带进错误信息。
+    let streamError = "";
+    if (options?.stream) {
+        try {
+            const streamed = await streamingLLMCall(config, messages, temperature, max_tokens, options.signal);
+            const wasTruncated = isTruncationFinishReason(streamed.finishReason);
+            pushApiLog({
+                characterName: options.label,
+                source: "background",
+                model: config.defaultModel,
+                messages: messages.map(m => ({ role: m.role, content: m.content })),
+                rawResponse: streamed.content,
+                usage: streamed.usage,
+            });
+            return { content: streamed.content, finishReason: streamed.finishReason, wasTruncated };
+        } catch (err) {
+            if (options.signal?.aborted) {
+                return { content: null, error: "请求已取消" };
+            }
+            streamError = err instanceof Error ? err.message : String(err);
+            console.warn("[simpleLLMCall] stream failed, falling back to non-stream:", err);
+        }
+    }
+    const streamNote = streamError ? `（流式请求先失败：${streamError}；已退回非流式重试）` : "";
 
     try {
         let fetchUrl: string;
@@ -170,9 +197,9 @@ export async function simpleLLMCall(
                 source: "background",
                 model: config.defaultModel,
                 messages: messages.map(m => ({ role: m.role, content: m.content })),
-                rawResponse: `[API 错误 ${res.status}] ${errText.slice(0, 2000)}`,
+                rawResponse: `[API 错误 ${res.status}] ${errText.slice(0, 2000)}${streamNote}`,
             });
-            return { content: null, error: `API 错误 ${res.status}: ${errText.slice(0, 200)}` };
+            return { content: null, error: `API 错误 ${res.status}: ${errText.slice(0, 200)}${streamNote}` };
         }
 
         const data = await res.json();
@@ -203,9 +230,107 @@ export async function simpleLLMCall(
             source: "background",
             model: config.defaultModel,
             messages: messages.map(m => ({ role: m.role, content: m.content })),
-            rawResponse: `[请求失败] ${err instanceof Error ? err.message : String(err)}`,
+            rawResponse: `[请求失败] ${err instanceof Error ? err.message : String(err)}${streamNote}`,
         });
-        return { content: null, error: `请求失败: ${err instanceof Error ? err.message : String(err)}` };
+        return { content: null, error: `请求失败: ${err instanceof Error ? err.message : String(err)}${streamNote}` };
+    }
+}
+
+/**
+ * 流式版本的单轮 LLM 调用：复用聊天用的 buildProviderRequest / 流式解析，
+ * 只把增量文本拼成完整回复返回。失败一律 throw，由 simpleLLMCall 决定是否退回非流式。
+ */
+async function streamingLLMCall(
+    config: ApiConfig,
+    messages: { role: string; content: string }[],
+    temperature: number,
+    maxTokens: number | undefined,
+    signal?: AbortSignal,
+): Promise<{ content: string; finishReason?: string; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } }> {
+    // 动态引入：llm-provider-adapter 反过来依赖本文件，静态引入会形成循环依赖。
+    const { buildProviderRequest, parseProviderStreamDelta } = await import("./llm-provider-adapter");
+    const { fetchLlmPayload } = await import("./llm-http");
+
+    const request = buildProviderRequest(
+        config,
+        null,
+        messages.map(m => ({
+            role: m.role === "system" || m.role === "assistant" ? m.role : "user",
+            content: m.content,
+        })) as Parameters<typeof buildProviderRequest>[2],
+        { stream: true, ...(maxTokens ? { maxTokens } : {}) },
+    );
+    // 总结类调用要低温度，覆盖预设默认值
+    if (request.providerKind === "gemini") {
+        const gen = (request.body.generationConfig && typeof request.body.generationConfig === "object"
+            ? request.body.generationConfig
+            : {}) as Record<string, unknown>;
+        request.body.generationConfig = { ...gen, temperature };
+    } else {
+        request.body.temperature = temperature;
+    }
+
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 500_000);
+    const onAbort = () => abort.abort();
+    if (signal) {
+        if (signal.aborted) abort.abort();
+        else signal.addEventListener("abort", onAbort);
+    }
+
+    try {
+        const response = await fetchLlmPayload(request, { signal: abort.signal });
+        if (!response.ok) {
+            const errText = await response.text().catch(() => "");
+            throw new Error(`API 错误 ${response.status}: ${errText.slice(0, 200)}`);
+        }
+        if (!response.body) throw new Error("流式响应没有 body");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let content = "";
+        let finishReason: string | undefined;
+        let usage: ReturnType<typeof extractUsage>;
+
+        const handleEvent = (eventText: string) => {
+            for (const line of eventText.split("\n")) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith("data:")) continue;
+                const dataLine = trimmed.slice(5).trim();
+                if (!dataLine || dataLine === "[DONE]") continue;
+                try {
+                    const parsed = JSON.parse(dataLine) as Record<string, unknown>;
+                    const delta = parseProviderStreamDelta(request.providerKind, parsed);
+                    if (delta.content) content += delta.content;
+                    finishReason = extractFinishReason(parsed) ?? finishReason;
+                    const u = extractUsage(parsed)
+                        ?? extractUsage({ usage: undefined, ...(parsed.usageMetadata ? { candidates: [{ usageMetadata: parsed.usageMetadata }] } : {}) });
+                    if (u) usage = u;
+                } catch {
+                    // 中转站心跳 / 非 JSON 片段，忽略
+                }
+            }
+        };
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const normalized = buffer.replace(/\r\n/g, "\n");
+            const parts = normalized.split("\n\n");
+            buffer = parts[parts.length - 1] || "";
+            for (const eventText of parts.slice(0, -1)) handleEvent(eventText);
+        }
+        buffer += decoder.decode();
+        if (buffer.trim()) handleEvent(buffer.replace(/\r\n/g, "\n"));
+
+        content = content.trim();
+        if (!content) throw new Error("流式响应没有返回正文");
+        return { content, finishReason, usage };
+    } finally {
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener("abort", onAbort);
     }
 }
 
