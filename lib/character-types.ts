@@ -1,3 +1,5 @@
+import type { SpecialDay } from "./special-days";
+
 export type Character = {
   id: string;
   name: string;
@@ -9,6 +11,7 @@ export type Character = {
   personality?: string;    // 角色性格
   timeZone?: string;       // IANA 时区，例如 America/New_York；空值表示跟随系统时间
   tags?: string[];
+  specialDays?: SpecialDay[]; // 重要日子：生日、纪念日等，当天强提示
   createdAt: string;
   updatedAt: string;
 
