@@ -6036,6 +6036,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                                                 onMusicPlay={handleMusicCardPlay}
                                                 onActionSelect={(text) => chatTextInputRef.current?.appendText(text)}
                                                 defaultTranslationExpanded={session.collapseBilingualTranslation !== false ? false : true}
+                                                onToggleVoiceText={(id) => setVoiceTextIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
                                             />
                                         </div>
                                         </div>}
