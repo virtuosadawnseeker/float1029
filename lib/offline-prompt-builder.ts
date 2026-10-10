@@ -7,6 +7,25 @@
 import type { ChatSession, ChatMessage } from "./chat-storage";
 import type { ChatOfflineTurn } from "./chat-offline-storage";
 
+/** 围观群里用户写的「导演指令」在线下轮次里的存储前缀；构造历史时还原成系统指令消息。 */
+export const OFFLINE_DIRECTOR_PREFIX = "[系统指令] ";
+
+function isDirectorNote(session: ChatSession, content: string): boolean {
+    return session.isGroup === true && session.isSpectator === true && content.startsWith(OFFLINE_DIRECTOR_PREFIX);
+}
+
+function directorNoteMessage(id: string, session: ChatSession, content: string, createdAt: string): ChatMessage {
+    return {
+        id,
+        sessionId: session.id,
+        role: "system",
+        mediaType: "system_instruction",
+        content,
+        status: "sent",
+        createdAt,
+    };
+}
+
 export function formatOfflineTurnXml(turn: ChatOfflineTurn): string {
     if (turn.rawText?.trim()) return turn.rawText.trim();
     const summaryTag = turn.summaryTag?.trim() || "summary";
@@ -37,7 +56,9 @@ export function buildOfflinePromptHistory(
         const assistantAt = turn.createdAt;
         const userAtMs = new Date(turn.createdAt).getTime() - 1;
         const userAt = Number.isFinite(userAtMs) ? new Date(userAtMs).toISOString() : turn.createdAt;
-        if (turn.userContent.trim()) {
+        if (turn.userContent.trim() && isDirectorNote(session, turn.userContent)) {
+            history.push(directorNoteMessage(`${turn.id}_user`, session, turn.userContent, userAt));
+        } else if (turn.userContent.trim()) {
             history.push({
                 id: `${turn.id}_user`,
                 sessionId: session.id,
@@ -57,7 +78,9 @@ export function buildOfflinePromptHistory(
             ...(session.isGroup ? { senderName: session.groupName || "群聊线下" } : {}),
         });
     }
-    if (pendingUserContent.trim()) {
+    if (pendingUserContent.trim() && isDirectorNote(session, pendingUserContent.trim())) {
+        history.push(directorNoteMessage(`offline_pending_${Date.now()}`, session, pendingUserContent.trim(), new Date().toISOString()));
+    } else if (pendingUserContent.trim()) {
         history.push({
             id: `offline_pending_${Date.now()}`,
             sessionId: session.id,
