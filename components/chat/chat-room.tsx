@@ -15,7 +15,7 @@ import { EmojiPanel, StickerPanel } from "./emoji-panel";
 import { StickerSearchSuggest } from "./sticker-search-suggest";
 import { StateValuesPanel } from "./state-values-panel";
 import { generateChatCompletion, generateOfflineChatCompletion, flattenCompletionResult, ChatEngineError } from "@/lib/chat-engine";
-import { formatOfflineTurnXml as formatOfflineTurnXmlShared, buildOfflinePromptHistory as buildOfflinePromptHistoryShared } from "@/lib/offline-prompt-builder";
+import { formatOfflineTurnXml as formatOfflineTurnXmlShared, buildOfflinePromptHistory as buildOfflinePromptHistoryShared, OFFLINE_DIRECTOR_PREFIX } from "@/lib/offline-prompt-builder";
 import { getStatusRegionConfig, isCustomStatusRegionActive } from "@/lib/chat-status-region";
 import { CustomStatusFrame } from "@/components/chat/custom-status-frame";
 import { sendBrowserNotification } from "@/lib/browser-notification";
@@ -834,7 +834,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 <button onClick={onToggleStickerPanel} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z" /><polyline points="14 3 14 8 21 8" /><path d="M8 13h0" /><path d="M16 13h0" /><path d="M10 17c.5.3 1.2.5 2 .5s1.5-.2 2-.5" /></svg>
                 </button>
-                <button onClick={onTogglePlusMenu} disabled={inputLocked} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked ? { opacity: 0.35 } : undefined}>
+                <button onClick={onTogglePlusMenu} disabled={inputLocked && !isSpectator} className="ui-bare-btn text-[var(--c-text)]" style={inputLocked && !isSpectator ? { opacity: 0.35 } : undefined}>
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>
                 </button>
                 <button
@@ -882,7 +882,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
 
             {showPlusMenu && (
                 <div className="chat-plus-menu">
-                    {plusMenuItems.map((item, i) => (
+                    {(isSpectator ? plusMenuItems.filter(item => item.label === "系统指令") : plusMenuItems).map((item, i) => (
                         <div key={`${item.label}-${i}`} onClick={item.onClick} className="chat-plus-menu-item flex flex-col items-center gap-1.5 cursor-pointer" {...(item.active ? { "data-active": "" } : {})}>
                             <div className="chat-plus-icon-box">
                                 {item.icon}
@@ -1024,8 +1024,7 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
                 }}
                 enterKeyHint={enterToSendEnabled ? "send" : "enter"}
                 className="chat-input-textarea"
-                disabled={isSpectator}
-                placeholder={isSpectator ? "围观中，点右侧按钮推进他们的线下互动" : undefined}
+                placeholder={isSpectator ? "围观中。可以写一句系统指令影响他们接下来的互动，留空则直接推进" : undefined}
             />
             <div className="chat-input-actions">
                 <button
@@ -4140,7 +4139,10 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             showChatToast("线下回复生成中");
             return false;
         }
-        const currentText = inputText.trim();
+        const rawText = inputText.trim();
+        // 围观群：用户不在群里，写下的话作为「系统指令」影响下一轮，留空则直接推进
+        const isDirectorNote = Boolean(session.isGroup && session.isSpectator && rawText);
+        const currentText = isDirectorNote ? `${OFFLINE_DIRECTOR_PREFIX}${rawText}` : rawText;
         if (!currentText && !(session.isGroup && session.isSpectator)) return false;
 
         cancelFollowUp(session.id);
@@ -4203,7 +4205,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 setOfflineTurns(prev => [...prev, saved]);
             } catch (error: any) {
                 if (!isCurrentOfflineRun() || isAbortLikeError(error)) return;
-                offlineTextInputRef.current?.setText(currentText);
+                offlineTextInputRef.current?.setText(rawText);
                 showChatToast(`线下生成失败: ${error?.message || String(error)}`, 3000);
             } finally {
                 if (!finishOfflineGenerationRun(session.id, offlineRunId)) return;
