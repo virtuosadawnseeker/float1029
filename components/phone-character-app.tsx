@@ -53,6 +53,7 @@ import {
 import { notifyMascotPageContext } from "@/lib/mascot-events";
 import { kvGet, kvSet } from "@/lib/kv-db";
 import { normalizeTimeZone } from "@/lib/character-time";
+import { normalizeSpecialDays, SPECIAL_DAY_KIND_LABELS, type SpecialDay, type SpecialDayKind } from "@/lib/special-days";
 import { removeCharacterChatReferences } from "@/lib/character-chat-cleanup";
 
 type ViewType = "list" | "detail";
@@ -1881,6 +1882,7 @@ function CharArchiveView({
   const [briefError, setBriefError] = useState("");
   const [timeZone, setTimeZone] = useState(char.timeZone || "");
   const [tags, setTags] = useState<string[]>(char.tags || []);
+  const [specialDays, setSpecialDays] = useState<SpecialDay[]>(char.specialDays || []);
   const [tagInput, setTagInput] = useState("");
   const [showTimeZonePicker, setShowTimeZonePicker] = useState(false);
   const [timeZoneSearch, setTimeZoneSearch] = useState(char.timeZone || "");
@@ -1978,6 +1980,7 @@ function CharArchiveView({
     if (polaroidImageX !== (char.polaroidImageX ?? 50)) return true;
     if (polaroidImageY !== (char.polaroidImageY ?? 50)) return true;
     if (polaroidImageZoom !== (char.polaroidImageZoom ?? 1)) return true;
+    if (JSON.stringify(normalizeSpecialDays(specialDays) ?? []) !== JSON.stringify(normalizeSpecialDays(char.specialDays) ?? [])) return true;
     const origTags = char.tags || [];
     if (tags.length !== origTags.length || tags.some((t, i) => t !== origTags[i])) return true;
     return false;
@@ -2002,6 +2005,7 @@ function CharArchiveView({
       setTimeZoneSearch(char.timeZone || "");
       setShowTimeZonePicker(false);
       setTags(char.tags || []);
+      setSpecialDays(char.specialDays || []);
       setAvatar(char.avatar || null);
       setPolaroidStyle(char.polaroidStyle ?? 0);
       setPolaroidSize(char.polaroidSize ?? "random");
@@ -2042,6 +2046,21 @@ function CharArchiveView({
     setUrlInput("");
   }
 
+  function addSpecialDay(kind: SpecialDayKind, label: string) {
+    setSpecialDays(prev => [
+      ...prev,
+      { id: `sd_${Date.now().toString(36)}_${prev.length}`, kind, label, month: 1, day: 1 },
+    ]);
+  }
+
+  function patchSpecialDay(id: string, patch: Partial<SpecialDay>) {
+    setSpecialDays(prev => prev.map(item => (item.id === id ? { ...item, ...patch } : item)));
+  }
+
+  function removeSpecialDay(id: string) {
+    setSpecialDays(prev => prev.filter(item => item.id !== id));
+  }
+
   function handleAddTag() {
     const t = tagInput.trim();
     if (!t) return;
@@ -2067,6 +2086,7 @@ function CharArchiveView({
           : undefined,
         timeZone: normalizedTimeZone,
         tags,
+        specialDays: normalizeSpecialDays(specialDays),
         avatar: avatar ?? null,
         polaroidStyle,
         polaroidSize,
@@ -2498,6 +2518,93 @@ function CharArchiveView({
                 />
               ) : (
                 <p className="char-archive-p whitespace-pre-wrap break-words">{personality}</p>
+              )}
+            </div>
+          )}
+
+          {/* 重要日子 — 生日、纪念日；当天会强提示角色必须体现 */}
+          {(isEditing || specialDays.length > 0) && (
+            <div className="char-log-entry mb-4 border-t border-dashed border-[#999] pt-3">
+              <span className="char-log-entry-header !mb-0">SPECIAL DAYS / 重要日子</span>
+              <p className="ts-10 opacity-60 mt-1">
+                生日、认识的日子、确认关系的日子等。到了当天，TA 在聊天里会被强提示必须体现；临近 30 天内也会有所察觉。年份可不填，填了会算岁数和周年。
+              </p>
+              {specialDays.map(item => (
+                isEditing ? (
+                  <div key={item.id} className="flex items-center gap-1 flex-wrap mt-2" style={{ fontSize: "calc(12px*var(--app-text-scale,1))" }}>
+                    <select
+                      value={item.kind}
+                      onChange={e => patchSpecialDay(item.id, { kind: e.target.value as SpecialDayKind })}
+                      style={{ background: "transparent", border: "1px dashed #666", padding: "2px 4px" }}
+                    >
+                      {(Object.keys(SPECIAL_DAY_KIND_LABELS) as SpecialDayKind[]).map(k => (
+                        <option key={k} value={k}>{SPECIAL_DAY_KIND_LABELS[k]}</option>
+                      ))}
+                    </select>
+                    {item.kind === "anniversary" && (
+                      <input
+                        value={item.label}
+                        onChange={e => patchSpecialDay(item.id, { label: e.target.value })}
+                        placeholder="名称，如：认识的日子"
+                        style={{ width: 130, background: "transparent", border: "1px dashed #666", padding: "2px 4px" }}
+                      />
+                    )}
+                    <input
+                      type="number" inputMode="numeric" min={1} max={9999}
+                      value={item.year ?? ""}
+                      onChange={e => patchSpecialDay(item.id, { year: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="年(可空)"
+                      style={{ width: 70, background: "transparent", border: "1px dashed #666", padding: "2px 4px" }}
+                    />
+                    <input
+                      type="number" inputMode="numeric" min={1} max={12}
+                      value={item.month}
+                      onChange={e => patchSpecialDay(item.id, { month: Number(e.target.value) })}
+                      style={{ width: 46, background: "transparent", border: "1px dashed #666", padding: "2px 4px" }}
+                    />
+                    <span>月</span>
+                    <input
+                      type="number" inputMode="numeric" min={1} max={31}
+                      value={item.day}
+                      onChange={e => patchSpecialDay(item.id, { day: Number(e.target.value) })}
+                      style={{ width: 46, background: "transparent", border: "1px dashed #666", padding: "2px 4px" }}
+                    />
+                    <span>日</span>
+                    <button
+                      type="button"
+                      onClick={() => removeSpecialDay(item.id)}
+                      className="ts-10 px-2 py-1 bg-transparent border border-[#999] rounded-full cursor-pointer"
+                    >
+                      删除
+                    </button>
+                  </div>
+                ) : (
+                  <p key={item.id} className="char-archive-p">
+                    {item.kind === "anniversary" ? (item.label || "纪念日") : SPECIAL_DAY_KIND_LABELS[item.kind]}
+                    {" · "}
+                    {item.year ? `${item.year}年` : ""}{item.month}月{item.day}日
+                  </p>
+                )
+              ))}
+              {isEditing && (
+                <div className="flex gap-1 flex-wrap mt-2">
+                  {([
+                    ["char_birthday", "", "+ 角色生日"],
+                    ["user_birthday", "", "+ 我的生日"],
+                    ["anniversary", "认识的日子", "+ 认识的日子"],
+                    ["anniversary", "确认关系的日子", "+ 确认关系的日子"],
+                    ["anniversary", "", "+ 其他纪念日"],
+                  ] as Array<[SpecialDayKind, string, string]>).map(([kind, label, text]) => (
+                    <button
+                      key={text}
+                      type="button"
+                      onClick={() => addSpecialDay(kind, label)}
+                      className="ts-10 px-3 py-1 bg-[#111111] text-white border-none rounded-full cursor-pointer hover:bg-[#222222] transition-colors"
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           )}

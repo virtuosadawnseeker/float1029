@@ -42,6 +42,7 @@ import type { CustomAppPromptProfile } from "./custom-app-types";
 import { isNeteaseConfigured } from "./music-service";
 import { buildCalendarScheduleMarker, getCurrentCalendarScheduleForPrompt } from "./calendar-storage";
 import { getWeekStartIso } from "./calendar-utils";
+import { buildSpecialDaysPrompt } from "./special-days";
 import {
     resolveBinding,
     loadBindingConfig,
@@ -378,10 +379,22 @@ async function buildGroupChatPromptMessages(
     const nameToId = new Map<string, string>();
     const memberNames: string[] = [];
     for (const m of members) { nameToId.set(m.character.name, m.character.id); memberNames.push(m.character.name); }
-    const groupTimeContext = buildGroupTimeContext(
+    const baseGroupTimeContext = buildGroupTimeContext(
         members.map(m => ({ name: m.character.name, timeZone: m.character.timeZone })),
         now,
     );
+    const groupSpecialDaysText = members
+        .map(m => buildSpecialDaysPrompt(m.character.specialDays, {
+            charName: m.character.name,
+            userName,
+            now,
+            timeZone: m.character.timeZone,
+        }))
+        .filter(Boolean)
+        .join("\n\n");
+    const groupTimeContext = groupSpecialDaysText
+        ? { ...baseGroupTimeContext, timeContext: `${baseGroupTimeContext.timeContext}\n${groupSpecialDaysText}` }
+        : baseGroupTimeContext;
     const groupPromptTimestampOptions = getPromptTimestampOptionsForTimeContext(groupTimeContext);
 
     const enabledTools = options?.disableTools ? [] : getEnabledTools("group_chat");

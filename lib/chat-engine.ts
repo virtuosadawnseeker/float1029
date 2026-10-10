@@ -72,6 +72,7 @@ import { getActiveAppTags } from "./content-tag-utils";
 import { isNeteaseConfigured, getUserPlaylists, getPlaylistTracks, checkLoginStatus, loadMusicApiConfig } from "./music-service";
 import { buildCalendarScheduleMarker, getCurrentCalendarScheduleForPrompt } from "./calendar-storage";
 import { getWeekStartIso } from "./calendar-utils";
+import { buildSpecialDaysPrompt } from "./special-days";
 import { buildCharacterTimeContext } from "./character-time";
 import { getPromptTimestampOptionsForTimeContext } from "./prompt-time";
 import { kvGet, kvSet, registerKvMigration } from "./kv-db";
@@ -1832,7 +1833,17 @@ export async function buildChatPromptMessages(
         : history;
 
     const now = new Date();
-    const promptTimeContext = buildCharacterTimeContext(character.timeZone, now);
+    const baseTimeContext = buildCharacterTimeContext(character.timeZone, now);
+    const specialDaysText = buildSpecialDaysPrompt(character.specialDays, {
+        charName: character.name,
+        userName: userIdentity?.name ?? "用户",
+        now,
+        timeZone: character.timeZone,
+        selfReference: true,
+    });
+    const promptTimeContext = specialDaysText
+        ? { ...baseTimeContext, timeContext: `${baseTimeContext.timeContext}\n${specialDaysText}` }
+        : baseTimeContext;
     const promptTimestampOptions = getPromptTimestampOptionsForTimeContext(promptTimeContext);
     const memConfig = loadMemoryConfig();
     const isOfflineMode = options?.appTags?.includes("offline") === true;
