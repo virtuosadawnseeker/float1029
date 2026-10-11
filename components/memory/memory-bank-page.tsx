@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, useState, useEffect, useCallback, type CSSProperties, type ReactNode } from "react";
+import { Component, useState, useEffect, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import { Trash2, Zap, Clock, Users, Archive, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, Filter, type LucideIcon } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { MemoryTimeline } from "./memory-timeline";
@@ -27,6 +27,12 @@ import { runSummarizationPipeline } from "@/lib/memory-summarizer";
 import { runCoreMemoryPipeline } from "@/lib/core-memory-builder";
 import { resolveAuxiliaryApiConfig, resolveUserIdentity } from "@/lib/settings-storage";
 import { generateEmbedding, resolveEmbeddingModel } from "@/lib/memory-embedding";
+import {
+    backfillLongTermEmbeddings,
+    computeEmbeddingCoverage,
+    type BackfillMode,
+    type EmbeddingCoverage,
+} from "@/lib/memory-embedding-backfill";
 import { BINDING_ACCENTS } from "@/lib/ui-accent-colors";
 
 type MemoryView = "list" | "detail" | "settings";
@@ -205,6 +211,10 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     const [savingMemory, setSavingMemory] = useState(false);
     const [summarizeRangeOpen, setSummarizeRangeOpen] = useState(false);
     const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+    const [embeddingCoverage, setEmbeddingCoverage] = useState<EmbeddingCoverage | null>(null);
+    const [embeddingJob, setEmbeddingJob] = useState<{ mode: BackfillMode; done: number; total: number; failed: number } | null>(null);
+    const [confirmRebuildVectors, setConfirmRebuildVectors] = useState(false);
+    const embeddingStopRef = useRef(false);
 
     const disabledSourceCount = MEMORY_SOURCE_OPTIONS
         .filter(source => (config.shortTermAllowedSources ?? {})[source.key] === false).length;
@@ -306,6 +316,25 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         }
     }, [view, selectedCharId, loadDetailData]);
 
+    // 设置页：统计当前角色长期记忆的向量覆盖情况（不调用 API，只读本地数据）
+    const refreshEmbeddingCoverage = useCallback(async (charId: string) => {
+        try {
+            const lt = await loadMemoryEntriesByType(charId, "long_term");
+            setLongTermEntries(lt);
+            setEmbeddingCoverage(computeEmbeddingCoverage(lt));
+        } catch {
+            setEmbeddingCoverage(null);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (view === "settings" && selectedCharId) {
+            void refreshEmbeddingCoverage(selectedCharId);
+        } else {
+            setEmbeddingCoverage(null);
+        }
+    }, [view, selectedCharId, refreshEmbeddingCoverage]);
+
     // Reset editing prompt when leaving settings
     useEffect(() => {
         if (view !== "settings") {
@@ -405,6 +434,36 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
             showNotice("核心记忆重建失败: " + String(err));
         } finally {
             setRebuildingCore(false);
+        }
+    };
+
+    const handleBackfillEmbeddings = async (mode: BackfillMode) => {
+        if (!selectedCharId || embeddingJob) return;
+        embeddingStopRef.current = false;
+        setEmbeddingJob({ mode, done: 0, total: 0, failed: 0 });
+        try {
+            const result = await backfillLongTermEmbeddings(selectedCharId, {
+                mode,
+                onProgress: progress => setEmbeddingJob({ mode, ...progress }),
+                shouldStop: () => embeddingStopRef.current,
+            });
+            if (!result.ok) {
+                const saved = result.updated > 0 ? `（已保存 ${result.updated} 条）` : "";
+                showNotice((result.error || "向量生成失败") + saved);
+            } else if (result.total === 0) {
+                showNotice("长期记忆都已有向量，无需补全");
+            } else {
+                const parts = [`已为 ${result.updated} 条记忆生成向量`];
+                if (result.failed > 0) parts.push(`${result.failed} 条失败，可再点一次补全`);
+                if (result.remaining > 0) parts.push(`${result.remaining} 条未处理`);
+                showNotice(parts.join("，"));
+            }
+        } catch (err) {
+            console.error("[MemoryBank] Backfill embeddings failed:", err);
+            showNotice("向量生成失败: " + String(err));
+        } finally {
+            setEmbeddingJob(null);
+            await refreshEmbeddingCoverage(selectedCharId);
         }
     };
 
@@ -615,6 +674,14 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                             <div className="mem-report-head">
                                 <span className="ts-11 text-secondary" style={{ letterSpacing: "1px" }}>[ DATE: {relativeTime(entry.createdAt)} ]</span>
                                 <div className="mem-report-actions">
+                                    {type === "long_term" && (
+                                        <span
+                                            className={`mem-origin-badge ${entry.embedding?.length ? "" : "is-manual"}`}
+                                            title={entry.embedding?.length ? "已向量化，可被向量召回" : "还没有向量：超出预算走向量召回时会被跳过，可在设置页点「补全」"}
+                                        >
+                                            {entry.embedding?.length ? "VEC" : "NO VEC"}
+                                        </span>
+                                    )}
                                     <span className={`mem-origin-badge ${isManualMemoryEntry(entry) ? "is-manual" : ""}`}>
                                         {isManualMemoryEntry(entry) ? "MANUAL" : "AUTO"}
                                     </span>
@@ -827,6 +894,23 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         const isCoreModified = currentCorePrompt !== (config.coreMemoryPrompt ?? DEFAULT_CORE_MEMORY_PROMPT);
         const isCoreDefault = (config.coreMemoryPrompt ?? DEFAULT_CORE_MEMORY_PROMPT) === DEFAULT_CORE_MEMORY_PROMPT;
 
+        let embeddingDesc = "读取中...";
+        if (embeddingJob) {
+            embeddingDesc = embeddingJob.total > 0
+                ? `正在生成向量 ${embeddingJob.done}/${embeddingJob.total}${embeddingJob.failed > 0 ? `，失败 ${embeddingJob.failed}` : ""}`
+                : "正在准备...";
+        } else if (embeddingCoverage) {
+            if (embeddingCoverage.total === 0) {
+                embeddingDesc = "还没有长期记忆";
+            } else if (embeddingCoverage.missing + embeddingCoverage.mismatched === 0) {
+                embeddingDesc = `全部 ${embeddingCoverage.total} 条都已有向量`;
+            } else {
+                embeddingDesc = `共 ${embeddingCoverage.total} 条，已有向量 ${embeddingCoverage.ready} 条，缺少 ${embeddingCoverage.missing} 条`
+                    + (embeddingCoverage.mismatched > 0 ? `，维度不一致 ${embeddingCoverage.mismatched} 条` : "");
+            }
+            if (config.vectorRecallEnabled === false) embeddingDesc += "（向量召回开关当前是关闭的）";
+        }
+
         return (
             <div className="page-menu memory-settings-menu">
                 {/* Manual summarize */}
@@ -868,7 +952,58 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                     </button>
                                 </div>
                             </div>
+                            <div className="menu-item">
+                                <MemorySettingsIcon icon={Search} color={BINDING_ACCENTS.embedding} />
+                                <div className="menu-label-group">
+                                    <span className="menu-label">长期记忆向量</span>
+                                    <span className="menu-desc">{embeddingDesc}</span>
+                                </div>
+                                <div className="menu-right" style={{ display: "flex", gap: 6 }}>
+                                    {embeddingJob ? (
+                                        <button
+                                            className="ui-btn ui-btn-outline py-1 px-3 ts-12"
+                                            onClick={() => { embeddingStopRef.current = true; }}
+                                        >
+                                            <X size={12} className="mr-1" />
+                                            停止
+                                        </button>
+                                    ) : (
+                                        <>
+                                            <button
+                                                className="ui-btn ui-btn-outline py-1 px-3 ts-12"
+                                                onClick={() => void handleBackfillEmbeddings("missing")}
+                                                disabled={!embeddingCoverage || embeddingCoverage.total === 0}
+                                            >
+                                                <Search size={12} className="mr-1" />
+                                                补全
+                                            </button>
+                                            <button
+                                                className="ui-btn ui-btn-outline py-1 px-3 ts-12"
+                                                onClick={() => setConfirmRebuildVectors(true)}
+                                                disabled={!embeddingCoverage || embeddingCoverage.total === 0}
+                                            >
+                                                全部重建
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
                         </div>
+
+                        {confirmRebuildVectors && (
+                            <ConfirmDialog
+                                title="全部重建向量？"
+                                message="会为该角色的每一条长期记忆重新调用一次向量 API。换了向量模型时才需要；只是补漏请点「补全」。记忆文字不会被修改。"
+                                icon={Search}
+                                variant="action"
+                                confirmLabel="开始重建"
+                                onConfirm={() => {
+                                    setConfirmRebuildVectors(false);
+                                    void handleBackfillEmbeddings("all");
+                                }}
+                                onCancel={() => setConfirmRebuildVectors(false)}
+                            />
+                        )}
 
                         {summarizeRangeOpen ? (
                             <div className="modal-overlay modal-overlay-bottom" data-ui="modal" onClick={() => setSummarizeRangeOpen(false)}>
