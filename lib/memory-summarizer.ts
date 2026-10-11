@@ -15,10 +15,10 @@ import {
     setLastSummarizedTimestamp,
     incrementCoreMemoryCounter,
 } from "./memory-storage";
-import { resolveAuxiliaryApiConfig } from "./settings-storage";
+import { resolveAuxiliaryApiConfig, resolveOptionalAuxiliaryApiConfig } from "./settings-storage";
 import { loadNativeTimeline, formatTimelineForSummarization, filterTimelineByAllowedSources } from "./short-term-assembler";
 import { generateEmbedding, resolveEmbeddingModel } from "./memory-embedding";
-import { simpleLLMCall } from "./api-helpers";
+import { resilientLLMCall } from "./api-helpers";
 import { maybeRunCoreMemoryPipeline } from "./core-memory-builder";
 
 /** Per-character lock to prevent concurrent summarization. */
@@ -103,10 +103,16 @@ export async function runSummarizationPipeline(
 
     // Call LLM for summarization — compatible with all providers
     // label 用于在「底层调用大模型日志」中标识这是记忆总结调用
-    const result = await simpleLLMCall(
+    // 主接口遇到 5xx / 限流 / 断网时自动等待重试；设置了备用 API 的话，重试仍失败会改用备用
+    const result = await resilientLLMCall(
         apiConfig,
         [{ role: "user", content: summaryPrompt }],
-        { temperature: 0.3, label: `记忆总结·${characterName}`, stream: true },
+        {
+            temperature: 0.3,
+            label: `记忆总结·${characterName}`,
+            stream: true,
+            fallbackConfig: resolveOptionalAuxiliaryApiConfig("memorySummaryFallbackApiConfigId"),
+        },
     );
 
     if (!result.content) {

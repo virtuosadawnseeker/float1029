@@ -452,7 +452,7 @@ export function ChatContactsList({ onCloseApp, onSelectSession, onSelectMascot, 
                                     <button
                                         className="menu-item"
                                         onClick={() => {
-                                            const found = chars.find(c => c.wechatID === addQuery.trim() || c.id === addQuery.trim());
+                                            const found = chars.find(c => !c.tags?.includes("配角") && (c.wechatID === addQuery.trim() || c.id === addQuery.trim())); // 配角不开放搜索，只能通过名片添加
                                             setAddResult(found || null);
                                         }}
                                     >

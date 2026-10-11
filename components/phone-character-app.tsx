@@ -26,6 +26,7 @@ import {
   getCharacterWorldGroupId,
   loadCharacterWorldGroups,
   moveCharacterToWorld,
+  countWorldRelationsAffectedByMove,
   renameCharacterWorldGroup,
   updateCharacterWorldDescription,
   CHARACTER_WORLDS_UPDATED_EVENT,
@@ -53,7 +54,17 @@ import {
 import { notifyMascotPageContext } from "@/lib/mascot-events";
 import { kvGet, kvSet } from "@/lib/kv-db";
 import { normalizeTimeZone } from "@/lib/character-time";
-import { normalizeSpecialDays, SPECIAL_DAY_KIND_LABELS, type SpecialDay, type SpecialDayKind } from "@/lib/special-days";
+import {
+  normalizeSpecialDays,
+  SPECIAL_DAY_KIND_LABELS,
+  DEFAULT_SPECIAL_DAY_PROMPTS,
+  loadSpecialDayPrompts,
+  saveSpecialDayPrompts,
+  resetSpecialDayPrompts,
+  type SpecialDay,
+  type SpecialDayKind,
+  type SpecialDayPromptTemplates,
+} from "@/lib/special-days";
 import { removeCharacterChatReferences } from "@/lib/character-chat-cleanup";
 
 type ViewType = "list" | "detail";
@@ -507,6 +518,10 @@ function CharListView({
   const fileRef = useRef<HTMLInputElement>(null);
   const [showNpcGen, setShowNpcGen] = useState(false);
   const [activeMoveChar, setActiveMoveChar] = useState<Character | null>(null);
+  // 转移世界会清掉关系线时，先弹确认：mode=drop 是拖到世界 tab（重新摆放坐标），mode=menu 是「转移到其他卷宗」菜单
+  const [pendingWorldMove, setPendingWorldMove] = useState<{
+    charId: string; charName: string; worldId: string; worldName: string; lostRelations: number; mode: "drop" | "menu";
+  } | null>(null);
 
   // ── 世界卷宗：当前世界派生数据 ──
   const currentGroup = worldGroups.find(g => g.id === currentWorldId)
@@ -514,6 +529,10 @@ function CharListView({
     ?? worldGroups[0];
   const memberSet = new Set(currentGroup?.memberIds ?? []);
   const worldCharacters = characters.filter(c => memberSet.has(c.id));
+  // 配角（NPC 生成/名片建档的角色，带「配角」标签）默认折叠，不占画布；点工具条的「配角」chip 展开
+  const [showSupporting, setShowSupporting] = useState(false);
+  const supportingCount = worldCharacters.filter(c => c.tags?.includes("配角")).length;
+  const visibleCharacters = showSupporting ? worldCharacters : worldCharacters.filter(c => !c.tags?.includes("配角"));
   const worldBgItems = (bgItems || []).filter(item => (item.worldId ?? DEFAULT_CHARACTER_WORLD_ID) === currentWorldId);
   const memberCounts = new Map(worldGroups.map(g => [g.id, g.memberIds.length]));
   const nameById = new Map(characters.map(c => [c.id, c.name || "未命名"]));
@@ -572,6 +591,25 @@ function CharListView({
     const targetGroup = worldGroups.find(g => g.id === worldId);
     if (!targetGroup) return false;
 
+    // 转移会清掉这个角色在当前卷宗里的关系线：先确认。返回 true 让拍立得回弹到原位，
+    // 用户确认后才真正移动；取消就什么都不会发生。
+    const lostRelations = countWorldRelationsAffectedByMove(charId, worldId);
+    if (lostRelations > 0) {
+      setPendingWorldMove({
+        charId,
+        charName: characters.find(c => c.id === charId)?.name ?? "该角色",
+        worldId,
+        worldName: targetGroup.name,
+        lostRelations,
+        mode: "drop",
+      });
+      return true;
+    }
+    return placeCharInWorld(charId, worldId, targetGroup.name);
+  }
+
+  /** 把角色归档进目标卷宗：清旧坐标，按目标画布视野自动放置 */
+  function placeCharInWorld(charId: string, worldId: string, worldName: string): boolean {
     // 目标世界画布的可视区左上附近自动放置（读它的 pan 记忆）
     let targetPan = { x: 0, y: 0, zoom: 1 };
     try {
@@ -588,7 +626,7 @@ function CharListView({
       : c
     ));
     moveCharacterToWorld(charId, worldId);
-    onNotice(`已归入卷宗「${targetGroup.name}」`);
+    onNotice(`已归入卷宗「${worldName}」`);
     return true;
   }
 
@@ -1162,6 +1200,16 @@ function CharListView({
             正在从 <strong>{nameById.get(linkFromId) ?? "?"}</strong> 拉线 · 点另一张照片牵上关系，点空白处取消
           </div>
         )}
+        {supportingCount > 0 && (
+          <button
+            type="button"
+            className="wt-link-hint"
+            style={{ top: 'auto', bottom: 16, left: 16, right: 'auto', transform: 'rotate(-0.6deg)', zIndex: 100000, cursor: 'pointer', pointerEvents: 'auto' }}
+            onClick={() => setShowSupporting(v => !v)}
+          >
+            配角 {supportingCount} · {showSupporting ? '点此折叠' : '点此展开'}
+          </button>
+        )}
         {worldCharacters.length === 0 && worldBgItems.length === 0 ? (
           <div className="char-empty" style={{ zIndex: 100 }}>
             <div className="char-empty-icon">
@@ -1189,7 +1237,7 @@ function CharListView({
               </DraggableNode>
             ))}
 
-            {worldCharacters.map((char, idx) => {
+            {visibleCharacters.map((char, idx) => {
               if (char.canvasX === undefined) return null;
               const hash = char.id.charCodeAt(0) + idx * 17;
               const styleIdx = char.polaroidStyle ?? (hash % 5);
@@ -1258,8 +1306,8 @@ function CharListView({
             {/* 把拉线放在所有卡片的最后渲染，并设置超高 zIndex，使其盖在所有照片之上 */}
             <svg className="absolute top-0 left-0 w-[10000px] h-[10000px] pointer-events-none overflow-visible" style={{ zIndex: 99999 }}>
               {relationLines.map(line => {
-                const a = worldCharacters.find(c => c.id === line.aId);
-                const b = worldCharacters.find(c => c.id === line.bId);
+                const a = visibleCharacters.find(c => c.id === line.aId);
+                const b = visibleCharacters.find(c => c.id === line.bId);
                 if (!a || !b || a.canvasX === undefined || a.canvasY === undefined || b.canvasX === undefined || b.canvasY === undefined) return null;
                 const x1 = a.canvasX + 60, y1 = a.canvasY + 60;
                 const x2 = b.canvasX + 60, y2 = b.canvasY + 60;
@@ -1634,6 +1682,23 @@ function CharListView({
         </div>
       )}
 
+      {pendingWorldMove && (
+        <ConfirmDialog
+          title="转移会清掉关系线"
+          message={`「${pendingWorldMove.charName}」在当前卷宗里有 ${pendingWorldMove.lostRelations} 条关系线。转移到「${pendingWorldMove.worldName}」后，这些线会被清除（关系线只在同一个卷宗内有效），不会带到新卷宗，之后需要重新画。确定要转移吗？`}
+          icon={AlertCircle}
+          variant="danger"
+          confirmLabel="仍然转移"
+          onConfirm={() => {
+            const move = pendingWorldMove;
+            setPendingWorldMove(null);
+            if (move.mode === "drop") placeCharInWorld(move.charId, move.worldId, move.worldName);
+            else moveCharacterToWorld(move.charId, move.worldId);
+          }}
+          onCancel={() => setPendingWorldMove(null)}
+        />
+      )}
+
       {/* 转移世界 Modal */}
       {activeMoveChar && (
         <div className="modal-overlay" data-ui="modal" onPointerDown={() => setActiveMoveChar(null)}>
@@ -1648,7 +1713,19 @@ function CharListView({
                   type="button"
                   style={{ width: '100%', padding: '12px 16px', textAlign: 'left', borderRadius: '8px', background: 'rgba(0,0,0,0.03)', marginBottom: '8px', border: '1px solid rgba(0,0,0,0.05)', fontWeight: '500', fontSize: '14px', color: '#333' }}
                   onClick={() => {
-                    moveCharacterToWorld(activeMoveChar.id, group.id);
+                    const lostRelations = countWorldRelationsAffectedByMove(activeMoveChar.id, group.id);
+                    if (lostRelations > 0) {
+                      setPendingWorldMove({
+                        charId: activeMoveChar.id,
+                        charName: activeMoveChar.name,
+                        worldId: group.id,
+                        worldName: group.name,
+                        lostRelations,
+                        mode: "menu",
+                      });
+                    } else {
+                      moveCharacterToWorld(activeMoveChar.id, group.id);
+                    }
                     setActiveMoveChar(null);
                   }}
                   role="option"
@@ -1883,6 +1960,10 @@ function CharArchiveView({
   const [timeZone, setTimeZone] = useState(char.timeZone || "");
   const [tags, setTags] = useState<string[]>(char.tags || []);
   const [specialDays, setSpecialDays] = useState<SpecialDay[]>(char.specialDays || []);
+  // 重要日子提示词模板：所有角色共用，独立于角色表单的「保存」，点自己的保存按钮即刻生效
+  const [dayPromptsOpen, setDayPromptsOpen] = useState(false);
+  const [dayPrompts, setDayPrompts] = useState<SpecialDayPromptTemplates>(DEFAULT_SPECIAL_DAY_PROMPTS);
+  const [dayPromptsNotice, setDayPromptsNotice] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [showTimeZonePicker, setShowTimeZonePicker] = useState(false);
   const [timeZoneSearch, setTimeZoneSearch] = useState(char.timeZone || "");
@@ -2606,6 +2687,74 @@ function CharArchiveView({
                       {text}
                     </button>
                   ))}
+                </div>
+              )}
+              {isEditing && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!dayPromptsOpen) setDayPrompts(loadSpecialDayPrompts());
+                      setDayPromptsNotice("");
+                      setDayPromptsOpen(open => !open);
+                    }}
+                    className="ts-10 px-3 py-1 bg-transparent border border-[#999] rounded-full cursor-pointer"
+                  >
+                    {dayPromptsOpen ? "收起提示词" : "编辑提示词（所有角色共用）"}
+                  </button>
+                  {dayPromptsOpen && (
+                    <div className="mt-2 flex flex-col gap-2">
+                      <p className="ts-10 opacity-60">
+                        占位符：{"{{lines}}"} 是具体的日子列表，{"{{char}}"} 是角色名，{"{{user}}"} 是你的名字。模板里不写 {"{{lines}}"} 的话，日子列表会放在文字前面。保存后对所有角色立即生效。
+                      </p>
+                      {([
+                        ["today", "当天（强提示）", 6],
+                        ["soon", "7 天内", 3],
+                        ["later", "30 天内", 3],
+                      ] as Array<[keyof SpecialDayPromptTemplates, string, number]>).map(([key, label, rows]) => (
+                        <div key={key} className="flex flex-col gap-1">
+                          <span className="ts-10 opacity-70">{label}</span>
+                          <textarea
+                            value={dayPrompts[key]}
+                            rows={rows}
+                            onChange={e => setDayPrompts(prev => ({ ...prev, [key]: e.target.value }))}
+                            style={{
+                              width: "100%",
+                              background: "transparent",
+                              border: "1px dashed #666",
+                              padding: "4px 6px",
+                              fontSize: "calc(12px*var(--app-text-scale,1))",
+                              resize: "vertical",
+                            }}
+                          />
+                        </div>
+                      ))}
+                      <div className="flex gap-1 items-center flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            saveSpecialDayPrompts(dayPrompts);
+                            setDayPromptsNotice("已保存");
+                          }}
+                          className="ts-10 px-3 py-1 bg-[#111111] text-white border-none rounded-full cursor-pointer hover:bg-[#222222] transition-colors"
+                        >
+                          保存提示词
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            resetSpecialDayPrompts();
+                            setDayPrompts(DEFAULT_SPECIAL_DAY_PROMPTS);
+                            setDayPromptsNotice("已恢复默认");
+                          }}
+                          className="ts-10 px-3 py-1 bg-transparent border border-[#999] rounded-full cursor-pointer"
+                        >
+                          恢复默认
+                        </button>
+                        {dayPromptsNotice && <span className="ts-10 opacity-60">{dayPromptsNotice}</span>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

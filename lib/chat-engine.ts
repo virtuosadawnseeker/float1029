@@ -491,6 +491,36 @@ function apiLogChannelFor(options?: { appId?: string }): { source: "chat" | "qa"
         : { source: "chat", channel: "chat" };
 }
 
+/**
+ * 聊天请求被接口拒绝（400、503 等）时也写一条日志。
+ * 之前只有成功的调用会进日志，报错只闪一下提示，事后想看是哪一次、什么状态码、
+ * 请求有多大都查不到；这里补上，供「报错日志」窗口按状态码列出。
+ */
+function logChatHttpFailure(args: {
+    request: { messagesForLog: { role: string; content: unknown; marker?: string }[] };
+    config: ApiConfig;
+    meta?: { characterName?: string };
+    options?: { appId?: string };
+    status: number;
+    errorText: string;
+}): void {
+    try {
+        pushApiLog({
+            characterName: args.meta?.characterName,
+            ...apiLogChannelFor(args.options),
+            model: args.config.defaultModel,
+            messages: args.request.messagesForLog.map(m => ({
+                role: m.role,
+                content: typeof m.content === "string" ? m.content : "[vision: 含图片的多模态消息]",
+                ...(m.marker ? { marker: m.marker } : {}),
+            })),
+            rawResponse: `[API 错误 ${args.status}] ${args.errorText.slice(0, 4000)}`,
+            status: args.status,
+            isError: true,
+        });
+    } catch { /* 日志失败不影响主流程 */ }
+}
+
 export function appendEmptyGenerateGuardMessage(
     messages: LLMMessage[],
     config: ApiConfig,
@@ -823,6 +853,7 @@ export async function sendLLMStreamRequest(
         const response = await fetchLlmPayload(request, { signal: llmAbort.signal });
         if (!response.ok) {
             const errorText = await response.text();
+            logChatHttpFailure({ request, config, meta, options, status: response.status, errorText });
             throw new ChatEngineError(`API Stream Error ${response.status}: ${errorText}`);
         }
         // 流式路径收集思维链原文：readSseStream 只通过 onReasoningDelta 回调透传，
@@ -943,6 +974,7 @@ export async function sendLLMRequest(
 
         if (!response.ok) {
             const errorText = await response.text();
+            logChatHttpFailure({ request, config, meta, options, status: response.status, errorText });
             throw new ChatEngineError(`API Error ${response.status}: ${errorText}`);
         }
 
@@ -1119,6 +1151,7 @@ export async function sendLLMToolStreamRequest(
 
         if (!response.ok) {
             const errorText = await response.text();
+            logChatHttpFailure({ request, config, meta, options, status: response.status, errorText });
             throw new ChatEngineError(`API Tool Stream Error ${response.status}: ${errorText}`);
         }
         if (!response.body) throw new ChatEngineError("原生动作流式响应没有 body。");
@@ -1267,6 +1300,7 @@ export async function sendLLMToolRequest(
 
         if (!response.ok) {
             const errorText = await response.text();
+            logChatHttpFailure({ request, config, meta, options, status: response.status, errorText });
             throw new ChatEngineError(`API Tool Error ${response.status}: ${errorText}`);
         }
 

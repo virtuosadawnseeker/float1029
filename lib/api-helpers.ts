@@ -117,14 +117,28 @@ export async function simpleLLMCall(
         try {
             const streamed = await streamingLLMCall(config, messages, temperature, max_tokens, options.signal);
             const wasTruncated = isTruncationFinishReason(streamed.finishReason);
+            // 模型被安全过滤中途掐断时，已吐出的正文只是半截；当成失败，不能当成完整结果入库。
+            const stoppedBySafety = isSafetyFinishReason(streamed.finishReason);
+            const finishNote = streamed.finishReason && !/^(stop|end_turn)$/i.test(streamed.finishReason)
+                ? `\n[finishReason: ${streamed.finishReason}]`
+                : "";
             pushApiLog({
                 characterName: options.label,
                 source: "background",
                 model: config.defaultModel,
                 messages: messages.map(m => ({ role: m.role, content: m.content })),
-                rawResponse: streamed.content,
+                rawResponse: stoppedBySafety
+                    ? `[被模型安全过滤中断，回复不完整]${finishNote}\n${streamed.content}`
+                    : `${streamed.content}${finishNote}`,
                 usage: streamed.usage,
             });
+            if (stoppedBySafety) {
+                return {
+                    content: null,
+                    error: `模型因安全过滤中途停止输出（${streamed.finishReason}），回复不完整，已取消入库。可换一个对内容更宽松的模型来做记忆总结`,
+                    finishReason: streamed.finishReason,
+                };
+            }
             return { content: streamed.content, finishReason: streamed.finishReason, wasTruncated };
         } catch (err) {
             if (options.signal?.aborted) {
@@ -198,6 +212,8 @@ export async function simpleLLMCall(
                 model: config.defaultModel,
                 messages: messages.map(m => ({ role: m.role, content: m.content })),
                 rawResponse: `[API 错误 ${res.status}] ${errText.slice(0, 2000)}${streamNote}`,
+                status: res.status,
+                isError: true,
             });
             return { content: null, error: `API 错误 ${res.status}: ${errText.slice(0, 200)}${streamNote}` };
         }
@@ -215,6 +231,7 @@ export async function simpleLLMCall(
             messages: messages.map(m => ({ role: m.role, content: m.content })),
             rawResponse: content ?? describeEmptyLLMResponse(data, finishReason, wasTruncated, config),
             usage: extractUsage(data),
+            ...(content ? {} : { isError: true }),
         });
         if (!content) {
             console.warn("[simpleLLMCall] Empty response. Keys:", JSON.stringify(Object.keys(data || {})),
@@ -231,9 +248,86 @@ export async function simpleLLMCall(
             model: config.defaultModel,
             messages: messages.map(m => ({ role: m.role, content: m.content })),
             rawResponse: `[请求失败] ${err instanceof Error ? err.message : String(err)}${streamNote}`,
+            isError: true,
         });
         return { content: null, error: `请求失败: ${err instanceof Error ? err.message : String(err)}${streamNote}` };
     }
+}
+
+/**
+ * 判断一次失败是不是「等一会儿或换个接口可能就好」的临时性错误：
+ * 5xx、429 限流、408 超时、以及网络层中断。4xx（密钥错、参数错）、模型安全过滤、
+ * 用户主动取消都不算——重试只会白白浪费请求。
+ */
+export function isRetryableLLMError(error?: string): boolean {
+    if (!error) return false;
+    if (/请求已取消|安全过滤/.test(error)) return false;
+    const match = error.match(/API 错误 (\d{3})/);
+    if (match) {
+        const status = Number(match[1]);
+        return status >= 500 || status === 429 || status === 408;
+    }
+    return /请求失败/.test(error);
+}
+
+function sleepMs(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise(resolve => {
+        if (signal?.aborted) { resolve(); return; }
+        const timer = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, ms);
+        const onAbort = () => { clearTimeout(timer); resolve(); };
+        signal?.addEventListener("abort", onAbort, { once: true });
+    });
+}
+
+type SimpleLLMResult = Awaited<ReturnType<typeof simpleLLMCall>>;
+
+/**
+ * 带重试和备用接口的 simpleLLMCall，给记忆总结这类「失败了没人在旁边看」的后台调用用。
+ * 1. 主接口遇到临时性错误（见 isRetryableLLMError）时，按 retryDelaysMs 依次等待后重试，
+ *    默认等 8 秒、再等 20 秒，共最多 3 次；
+ * 2. 仍然失败且配置了 fallbackConfig 时，改用备用接口再试一次；
+ * 3. 非临时性错误（4xx、安全过滤、取消）立刻返回，不重试。
+ * 每次重试在「底层调用大模型日志」里都有独立记录，来源标签后面会带「重试N」或「备用」。
+ */
+export async function resilientLLMCall(
+    config: ApiConfig,
+    messages: { role: string; content: string }[],
+    options?: Parameters<typeof simpleLLMCall>[2] & {
+        retryDelaysMs?: number[];
+        fallbackConfig?: ApiConfig | null;
+    },
+): Promise<SimpleLLMResult & { attempts: number; usedFallback: boolean }> {
+    const { retryDelaysMs = [8000, 20000], fallbackConfig, ...callOptions } = options ?? {};
+    const baseLabel = callOptions.label;
+    const withLabel = (suffix: string) => ({
+        ...callOptions,
+        ...(baseLabel ? { label: `${baseLabel}${suffix}` } : {}),
+    });
+
+    let attempts = 1;
+    let result = await simpleLLMCall(config, messages, callOptions);
+
+    for (const delay of retryDelaysMs) {
+        if (result.content || !isRetryableLLMError(result.error) || callOptions.signal?.aborted) break;
+        await sleepMs(delay, callOptions.signal);
+        if (callOptions.signal?.aborted) break;
+        result = await simpleLLMCall(config, messages, withLabel(`（重试${attempts}）`));
+        attempts++;
+    }
+
+    if (!result.content && fallbackConfig && isRetryableLLMError(result.error) && !callOptions.signal?.aborted) {
+        const fallback = await simpleLLMCall(fallbackConfig, messages, withLabel("（备用）"));
+        attempts++;
+        if (fallback.content) return { ...fallback, attempts, usedFallback: true };
+        return {
+            ...fallback,
+            error: `主接口：${result.error ?? "未知错误"}；备用接口：${fallback.error ?? "未知错误"}`,
+            attempts,
+            usedFallback: true,
+        };
+    }
+
+    return { ...result, attempts, usedFallback: false };
 }
 
 /**

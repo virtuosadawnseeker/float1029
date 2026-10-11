@@ -1045,6 +1045,38 @@ export function ImageGenerationSettings() {
                 </div>
             )}
 
+            <div className="flex flex-col gap-2">
+                <p className="settings-menu-section-title">Moments</p>
+                <div className="menu-group">
+                    <div className="menu-item">
+                        <span className="min-w-0 flex flex-1 flex-col">
+                            <span className="menu-label">朋友圈自动生图</span>
+                            <span className="menu-desc">关闭后，角色发朋友圈只显示配图描述，不会自动调用生图；想看图时点描述手动生成。</span>
+                        </span>
+                        <span className="menu-right settings-tools-menu-toggle">
+                            <Toggle
+                                checked={settings.momentsAutoPhoto !== false}
+                                onChange={(momentsAutoPhoto) => persist({ ...settings, momentsAutoPhoto })}
+                                className="settings-toggle-control"
+                            />
+                        </span>
+                    </div>
+                    <div className="menu-item">
+                        <span className="min-w-0 flex flex-1 flex-col">
+                            <span className="menu-label">朋友圈配图一律带角色参考图</span>
+                            <span className="menu-desc">开启后，自动生图时只要该角色设置了参考图就会附上，不再看角色是否声明「使用参考图」。纯风景、食物图也会带，可能让脸出现在不该出现的地方。仅 OpenAI 兼容模式有效。</span>
+                        </span>
+                        <span className="menu-right settings-tools-menu-toggle">
+                            <Toggle
+                                checked={settings.momentsAlwaysUseReference === true}
+                                onChange={(momentsAlwaysUseReference) => persist({ ...settings, momentsAlwaysUseReference })}
+                                className="settings-toggle-control"
+                            />
+                        </span>
+                    </div>
+                </div>
+            </div>
+
             {settings.provider !== "novelai" && (
                 <div className="flex flex-col gap-2">
                     <p className="settings-menu-section-title">User References</p>

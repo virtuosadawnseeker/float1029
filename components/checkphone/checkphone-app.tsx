@@ -65,6 +65,7 @@ import { CheckPhoneXiaohongshuPage } from "@/components/checkphone/checkphone-xi
 import { CheckPhoneXPage } from "@/components/checkphone/checkphone-x-page";
 import { CheckPhoneYoutubePage } from "@/components/checkphone/checkphone-youtube-page";
 import { loadCharacters } from "@/lib/character-storage";
+import { loadMemoryConfig, saveMemoryConfig } from "@/lib/memory-storage";
 import type { Character } from "@/lib/character-types";
 import {
   CHECKPHONE_APP_SPECS,
@@ -345,6 +346,21 @@ export function CheckPhoneApp({ onClose }: CheckPhoneAppProps) {
   const [historyGroups, setHistoryGroups] = useState<{ characterId: string; name: string; entries: CheckPhoneProjectionEntry[] }[]>([]);
   const [confirmClearHistoryCharId, setConfirmClearHistoryCharId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 「让角色知道我查过手机」：与记忆库「记忆来源 → 查手机」是同一个开关（全局）
+  const [peekVisibleToChar, setPeekVisibleToChar] = useState(true);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    try { setPeekVisibleToChar(loadMemoryConfig().shortTermAllowedSources?.checkphone !== false); } catch { /* 读取失败时保持默认 */ }
+  }, [settingsOpen]);
+  const updatePeekVisibleToChar = (checked: boolean) => {
+    setPeekVisibleToChar(checked);
+    try {
+      const config = loadMemoryConfig();
+      saveMemoryConfig({ ...config, shortTermAllowedSources: { ...(config.shortTermAllowedSources ?? {}), checkphone: checked } });
+    } catch (error) {
+      console.warn("[CheckPhone] save peek visibility failed:", error);
+    }
+  };
   const [promptEditorOpen, setPromptEditorOpen] = useState(false);
   const [promptDraft, setPromptDraft] = useState(DEFAULT_CHECKPHONE_BILINGUAL_PROMPT);
   const [checkPhoneSettings, setCheckPhoneSettings] = useState<CheckPhoneSettings>({
@@ -616,6 +632,16 @@ export function CheckPhoneApp({ onClose }: CheckPhoneAppProps) {
                         checked={checkPhoneSettings.collapseBilingualTranslation}
                         onChange={(checked) => updateCheckPhoneSettings({ collapseBilingualTranslation: checked })}
                         disabled={!!activeState?.loading}
+                      />
+                    </div>
+                    <div className="cp-desktop-settings-row">
+                      <div>
+                        <strong>让角色知道我查过手机</strong>
+                        <span>关闭后，角色的聊天和记忆里不会出现查手机的记录（全局，与记忆来源同一开关）</span>
+                      </div>
+                      <Toggle
+                        checked={peekVisibleToChar}
+                        onChange={updatePeekVisibleToChar}
                       />
                     </div>
                     {checkPhoneSettings.bilingualTranslationEnabled && (

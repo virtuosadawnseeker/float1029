@@ -4,6 +4,8 @@
  * 提示词里：当天强提示（必须体现），临近 30 天内弱提示。
  */
 
+import { kvGet, kvSet, kvRemove, registerKvMigration } from "./kv-db";
+
 export type SpecialDayKind = "char_birthday" | "user_birthday" | "anniversary";
 
 export type SpecialDay = {
@@ -110,6 +112,73 @@ function yearsNote(sd: SpecialDay, occurrenceYear: number): string {
   return `（${n} 岁生日）`;
 }
 
+/**
+ * 三段提示词模板：当天 / 7 天内 / 30 天内。可在角色页「重要日子」里编辑，所有角色共用。
+ * 占位符：{{lines}} 具体的日子列表（每行一条）、{{char}} 角色名、{{user}} 用户名。
+ * 模板里没写 {{lines}} 时，日子列表会放在模板文字的前面。
+ */
+export type SpecialDayPromptTemplates = {
+  today: string;
+  soon: string;
+  later: string;
+};
+
+export const DEFAULT_SPECIAL_DAY_PROMPTS: SpecialDayPromptTemplates = {
+  today: [
+    "【重要日子·就是今天】",
+    "{{lines}}",
+    "这是对 {{char}} 和 {{user}} 都很重要的日子。本次回复里必须自然地体现出你记得这一天，并按你自己的性格表达，可以是祝福、别扭、害羞、惊喜、准备礼物或约定见面，不能当成普通的一天，也不能等对方提醒才想起。若这段对话里已经提过、庆祝过，就不必每条消息重复，但整天都保持“今天是这个日子”的心境。",
+  ].join("\n"),
+  soon: [
+    "【临近的重要日子】",
+    "{{lines}}",
+    "你记得这件事，可以在合适的时候自然地提起或悄悄准备，不要生硬地每次都说。",
+  ].join("\n"),
+  later: [
+    "【之后的重要日子】",
+    "{{lines}}",
+    "只需心里有数，不必主动提起。",
+  ].join("\n"),
+};
+
+const SPECIAL_DAY_PROMPTS_KEY = "ai_phone_special_day_prompts_v1";
+registerKvMigration(SPECIAL_DAY_PROMPTS_KEY);
+
+/** 读取用户保存的模板；没改过、或某一段被清空的，用默认值补上。 */
+export function loadSpecialDayPrompts(): SpecialDayPromptTemplates {
+  const merged = { ...DEFAULT_SPECIAL_DAY_PROMPTS };
+  try {
+    const raw = typeof window !== "undefined" ? kvGet(SPECIAL_DAY_PROMPTS_KEY) : null;
+    if (!raw) return merged;
+    const parsed = JSON.parse(raw) as Partial<Record<keyof SpecialDayPromptTemplates, unknown>>;
+    for (const key of ["today", "soon", "later"] as const) {
+      const value = parsed[key];
+      if (typeof value === "string" && value.trim()) merged[key] = value;
+    }
+  } catch {
+    // 存档损坏时退回默认
+  }
+  return merged;
+}
+
+export function saveSpecialDayPrompts(templates: SpecialDayPromptTemplates): void {
+  try { kvSet(SPECIAL_DAY_PROMPTS_KEY, JSON.stringify(templates)); } catch { /* 保存失败不影响主流程 */ }
+}
+
+export function resetSpecialDayPrompts(): void {
+  try { kvRemove(SPECIAL_DAY_PROMPTS_KEY); } catch { /* 同上 */ }
+}
+
+function renderPromptTemplate(template: string, lines: string[], charName: string, userName: string): string {
+  const bullets = lines.map(line => `- ${line}`).join("\n");
+  const filled = template.includes("{{lines}}")
+    ? template.replace(/\{\{lines\}\}/gi, bullets)
+    : `${bullets}\n${template}`;
+  return filled
+    .replace(/\{\{char\}\}/gi, charName)
+    .replace(/\{\{user\}\}/gi, userName);
+}
+
 export type SpecialDaysPromptOptions = {
   charName: string;
   userName: string;
@@ -117,6 +186,8 @@ export type SpecialDaysPromptOptions = {
   timeZone?: string;
   /** 单聊里用「你」指代角色；群聊里直接写角色名 */
   selfReference?: boolean;
+  /** 不传就读用户保存的模板（没改过则用默认） */
+  templates?: SpecialDayPromptTemplates;
 };
 
 /** 返回要拼到 timeContext 后面的文字；没有任何相关日子时返回空串。 */
@@ -145,27 +216,10 @@ export function buildSpecialDaysPrompt(days: SpecialDay[] | undefined, options: 
     }
   }
 
+  const templates = options.templates ?? loadSpecialDayPrompts();
   const blocks: string[] = [];
-  if (todayLines.length > 0) {
-    blocks.push([
-      "【重要日子·就是今天】",
-      ...todayLines.map(line => `- ${line}`),
-      `这是对 ${options.charName} 和 ${userName} 都很重要的日子。本次回复里必须自然地体现出你记得这一天，并按你自己的性格表达，可以是祝福、别扭、害羞、惊喜、准备礼物或约定见面，不能当成普通的一天，也不能等对方提醒才想起。若这段对话里已经提过、庆祝过，就不必每条消息重复，但整天都保持“今天是这个日子”的心境。`,
-    ].join("\n"));
-  }
-  if (soonLines.length > 0) {
-    blocks.push([
-      "【临近的重要日子】",
-      ...soonLines.map(line => `- ${line}`),
-      "你记得这件事，可以在合适的时候自然地提起或悄悄准备，不要生硬地每次都说。",
-    ].join("\n"));
-  }
-  if (laterLines.length > 0) {
-    blocks.push([
-      "【之后的重要日子】",
-      ...laterLines.map(line => `- ${line}`),
-      "只需心里有数，不必主动提起。",
-    ].join("\n"));
-  }
+  if (todayLines.length > 0) blocks.push(renderPromptTemplate(templates.today, todayLines, options.charName, userName));
+  if (soonLines.length > 0) blocks.push(renderPromptTemplate(templates.soon, soonLines, options.charName, userName));
+  if (laterLines.length > 0) blocks.push(renderPromptTemplate(templates.later, laterLines, options.charName, userName));
   return blocks.join("\n\n");
 }

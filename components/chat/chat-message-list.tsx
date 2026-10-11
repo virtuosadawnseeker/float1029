@@ -366,7 +366,7 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                                         className="menu-item"
                                         onClick={() => {
                                             const chars = loadCharacters();
-                                            const found = chars.find(c => c.wechatID === searchQuery.trim() || c.id === searchQuery.trim());
+                                            const found = chars.find(c => !c.tags?.includes("配角") && (c.wechatID === searchQuery.trim() || c.id === searchQuery.trim())); // 配角不开放搜索，只能通过名片添加
                                             setSearchResult(found || null);
                                         }}
                                     >
@@ -383,7 +383,7 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                             {/* 备选：已有角色卡但还不在联系人里，点击直接填入号码 */}
                             {(() => {
                                 const contactIds = new Set(loadChatContacts().map(c => c.characterId));
-                                const candidates = loadCharacters().filter(c => !contactIds.has(c.id));
+                                const candidates = loadCharacters().filter(c => !contactIds.has(c.id) && !c.tags?.includes("配角")); // 配角不进推荐，只能通过名片添加
                                 if (candidates.length === 0 && mascotSettings.chatEnabled) return null;
                                 return (
                                     <div className="menu-group" style={{ marginTop: 12 }}>
