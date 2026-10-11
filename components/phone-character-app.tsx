@@ -26,6 +26,7 @@ import {
   getCharacterWorldGroupId,
   loadCharacterWorldGroups,
   moveCharacterToWorld,
+  countWorldRelationsAffectedByMove,
   renameCharacterWorldGroup,
   updateCharacterWorldDescription,
   CHARACTER_WORLDS_UPDATED_EVENT,
@@ -517,6 +518,10 @@ function CharListView({
   const fileRef = useRef<HTMLInputElement>(null);
   const [showNpcGen, setShowNpcGen] = useState(false);
   const [activeMoveChar, setActiveMoveChar] = useState<Character | null>(null);
+  // 转移世界会清掉关系线时，先弹确认：mode=drop 是拖到世界 tab（重新摆放坐标），mode=menu 是「转移到其他卷宗」菜单
+  const [pendingWorldMove, setPendingWorldMove] = useState<{
+    charId: string; charName: string; worldId: string; worldName: string; lostRelations: number; mode: "drop" | "menu";
+  } | null>(null);
 
   // ── 世界卷宗：当前世界派生数据 ──
   const currentGroup = worldGroups.find(g => g.id === currentWorldId)
@@ -582,6 +587,25 @@ function CharListView({
     const targetGroup = worldGroups.find(g => g.id === worldId);
     if (!targetGroup) return false;
 
+    // 转移会清掉这个角色在当前卷宗里的关系线：先确认。返回 true 让拍立得回弹到原位，
+    // 用户确认后才真正移动；取消就什么都不会发生。
+    const lostRelations = countWorldRelationsAffectedByMove(charId, worldId);
+    if (lostRelations > 0) {
+      setPendingWorldMove({
+        charId,
+        charName: characters.find(c => c.id === charId)?.name ?? "该角色",
+        worldId,
+        worldName: targetGroup.name,
+        lostRelations,
+        mode: "drop",
+      });
+      return true;
+    }
+    return placeCharInWorld(charId, worldId, targetGroup.name);
+  }
+
+  /** 把角色归档进目标卷宗：清旧坐标，按目标画布视野自动放置 */
+  function placeCharInWorld(charId: string, worldId: string, worldName: string): boolean {
     // 目标世界画布的可视区左上附近自动放置（读它的 pan 记忆）
     let targetPan = { x: 0, y: 0, zoom: 1 };
     try {
@@ -598,7 +622,7 @@ function CharListView({
       : c
     ));
     moveCharacterToWorld(charId, worldId);
-    onNotice(`已归入卷宗「${targetGroup.name}」`);
+    onNotice(`已归入卷宗「${worldName}」`);
     return true;
   }
 
@@ -1644,6 +1668,23 @@ function CharListView({
         </div>
       )}
 
+      {pendingWorldMove && (
+        <ConfirmDialog
+          title="转移会清掉关系线"
+          message={`「${pendingWorldMove.charName}」在当前卷宗里有 ${pendingWorldMove.lostRelations} 条关系线。转移到「${pendingWorldMove.worldName}」后，这些线会被清除（关系线只在同一个卷宗内有效），不会带到新卷宗，之后需要重新画。确定要转移吗？`}
+          icon={AlertCircle}
+          variant="danger"
+          confirmLabel="仍然转移"
+          onConfirm={() => {
+            const move = pendingWorldMove;
+            setPendingWorldMove(null);
+            if (move.mode === "drop") placeCharInWorld(move.charId, move.worldId, move.worldName);
+            else moveCharacterToWorld(move.charId, move.worldId);
+          }}
+          onCancel={() => setPendingWorldMove(null)}
+        />
+      )}
+
       {/* 转移世界 Modal */}
       {activeMoveChar && (
         <div className="modal-overlay" data-ui="modal" onPointerDown={() => setActiveMoveChar(null)}>
@@ -1658,7 +1699,19 @@ function CharListView({
                   type="button"
                   style={{ width: '100%', padding: '12px 16px', textAlign: 'left', borderRadius: '8px', background: 'rgba(0,0,0,0.03)', marginBottom: '8px', border: '1px solid rgba(0,0,0,0.05)', fontWeight: '500', fontSize: '14px', color: '#333' }}
                   onClick={() => {
-                    moveCharacterToWorld(activeMoveChar.id, group.id);
+                    const lostRelations = countWorldRelationsAffectedByMove(activeMoveChar.id, group.id);
+                    if (lostRelations > 0) {
+                      setPendingWorldMove({
+                        charId: activeMoveChar.id,
+                        charName: activeMoveChar.name,
+                        worldId: group.id,
+                        worldName: group.name,
+                        lostRelations,
+                        mode: "menu",
+                      });
+                    } else {
+                      moveCharacterToWorld(activeMoveChar.id, group.id);
+                    }
                     setActiveMoveChar(null);
                   }}
                   role="option"

@@ -218,6 +218,19 @@ export function moveCharacterToWorld(characterId: string, groupId: string): void
     }));
 }
 
+/**
+ * 把角色转移到另一个世界会清掉多少条关系线？
+ * 关系线只在同一个世界内有效：角色离开原世界后，原世界里所有牵涉到他的线都会被删除（见 moveCharacterToWorld），
+ * 转移前用它告诉用户代价。目标就是当前所在世界、或角色不在任何世界时返回 0。
+ */
+export function countWorldRelationsAffectedByMove(characterId: string, targetGroupId: string): number {
+    const current = loadCharacterWorldGroups().find(group => group.memberIds.includes(characterId));
+    if (!current || current.id === targetGroupId) return 0;
+    return current.relations.filter(relation =>
+        relation.fromCharacterId === characterId || relation.toCharacterId === characterId
+    ).length;
+}
+
 export function addCharacterWorldRelation(groupId: string, fromCharacterId: string, toCharacterId: string, label: string): void {
     const trimmedLabel = label.trim();
     if (!trimmedLabel || fromCharacterId === toCharacterId) return;
