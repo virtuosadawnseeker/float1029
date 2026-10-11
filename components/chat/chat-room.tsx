@@ -43,7 +43,7 @@ import { TransferTargetModal } from "./transfer-target-modal";
 import { GiftPickerModal } from "./gift-picker-modal";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { deleteWeixinCloudMessagesFromCloud, emitWeixinSyncToast, syncAllWeixinBotRuntimesToCloud } from "@/lib/weixin-cloud-sync";
-import { loadBindingConfig, loadPresets, loadRegexes, resolveBinding, resolveUserIdentity } from "@/lib/settings-storage";
+import { loadBindingConfig, loadPresets, loadRegexes, resolveBinding, resolveUserIdentity, resolveGroupUserIdentity } from "@/lib/settings-storage";
 import { generateGroupChatCompletion, generateGroupOfflineChatCompletion, parseGroupChatResponse, buildEditableGroupRoundText } from "@/lib/group-chat-engine";
 import { appendChatOfflineTurn, deleteChatOfflineTurn, deleteChatOfflineTurnsFrom, extractThinkingTag, loadChatOfflineTurns, parseOfflineResponse, saveChatOfflineTurns, updateChatOfflineTurn, type ChatOfflineTurn } from "@/lib/chat-offline-storage";
 import { applyDisplayRegex, applyEditRegex } from "@/lib/llm-prompt-assembler";
@@ -1720,7 +1720,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     );
 
     useEffect(() => {
-        setUserIdentity(resolveUserIdentity(session.contactId, "chat"));
+        // 群聊用会话绑定的用户身份（与群聊引擎一致），单聊仍按角色绑定解析
+        setUserIdentity(session.isGroup ? resolveGroupUserIdentity(session) : resolveUserIdentity(session.contactId, "chat"));
         setTransientMessages([]);
         setOfflineMode(kvGet(CHAT_OFFLINE_MODE_PREFIX + session.id) === "1");
         setOfflineVisibleCount(OFFLINE_INITIAL_LOAD);
@@ -1799,6 +1800,12 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             void runManagedGeneration({ history: msgs, onDecline: triggerReply });
         }
     }, [session.id]);
+
+    // 群聊里改绑用户身份后立即刷新头像/名字，不必退出重进
+    useEffect(() => {
+        if (session.isGroup) setUserIdentity(resolveGroupUserIdentity(session));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session.isGroup, session.userIdentityId]);
 
     const needsInitialScrollRef = useRef(true);
     const prevMsgCountRef = useRef(0);
