@@ -34,6 +34,7 @@ import {
     loadWorldBooks,
     loadRegexes,
     resolveUserIdentity,
+    loadImageGenerationSettings,
 } from "./settings-storage";
 import type { PresetConfig, ApiConfig } from "./settings-types";
 import { loadMemoryConfig, incrementEventCounter } from "./memory-storage";
@@ -1188,12 +1189,20 @@ export function attachMomentPhotoInBackground(
     useReferenceImage: boolean,
     signal?: AbortSignal,
 ): void {
+    // 朋友圈自动生图开关：关闭时只保留配图描述，撤掉「生成中」状态，需要时点描述手动生成
+    const imageSettings = loadImageGenerationSettings();
+    if (imageSettings.momentsAutoPhoto === false) {
+        updateMomentPost(postId, { photoGenerationStatus: undefined });
+        dispatchMomentsUpdated();
+        return;
+    }
+    const effectiveUseReference = useReferenceImage || imageSettings.momentsAlwaysUseReference === true;
     void (async () => {
         let photoUrl: string | undefined;
         let errorMessage: string | undefined;
         let aborted = false;
         try {
-            photoUrl = await generateMomentPhotoUrl(description, characterId, useReferenceImage, signal);
+            photoUrl = await generateMomentPhotoUrl(description, characterId, effectiveUseReference, signal);
         } catch (error) {
             aborted = isAbortError(error);
             errorMessage = error instanceof Error ? error.message : String(error);

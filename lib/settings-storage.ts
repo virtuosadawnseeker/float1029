@@ -712,6 +712,8 @@ export const DEFAULT_IMAGE_GENERATION_SETTINGS: ImageGenerationSettings = {
     userTriggerKeywords: "合照,合影,妻主,我的照片,你的照片",
     userReferences: {},
     userReferenceByName: true,
+    momentsAutoPhoto: true,
+    momentsAlwaysUseReference: false,
     userReferencePrompt: DEFAULT_USER_REFERENCE_PROMPT,
     imageHosting: {
         provider: "none",
@@ -839,6 +841,8 @@ function normalizeImageGenerationSettings(settings: Partial<ImageGenerationSetti
             ))
             : {},
         userReferenceByName: settings?.userReferenceByName !== false,
+        momentsAutoPhoto: settings?.momentsAutoPhoto !== false,
+        momentsAlwaysUseReference: settings?.momentsAlwaysUseReference === true,
         userReferencePrompt: typeof settings?.userReferencePrompt === "string" ? settings.userReferencePrompt : DEFAULT_USER_REFERENCE_PROMPT,
         imageHosting: {
             ...DEFAULT_IMAGE_GENERATION_SETTINGS.imageHosting,

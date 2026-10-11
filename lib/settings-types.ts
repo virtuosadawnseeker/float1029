@@ -264,6 +264,10 @@ export type ImageGenerationSettings = {
     userReferenceByName?: boolean;
     /** 同时带用户参考图时，说明哪张图是谁；留空则不加。 */
     userReferencePrompt?: string;
+    /** 朋友圈：角色发帖带配图描述时是否自动生图（默认开；关掉后帖子只显示描述，点描述可手动生成）。 */
+    momentsAutoPhoto?: boolean;
+    /** 朋友圈：自动生图时，只要该角色设置了参考图就一律附上（默认关，由角色自己决定是否使用参考图）。 */
+    momentsAlwaysUseReference?: boolean;
     imageHosting: ImageHostingSettings;
 };
 
