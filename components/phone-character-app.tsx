@@ -53,7 +53,17 @@ import {
 import { notifyMascotPageContext } from "@/lib/mascot-events";
 import { kvGet, kvSet } from "@/lib/kv-db";
 import { normalizeTimeZone } from "@/lib/character-time";
-import { normalizeSpecialDays, SPECIAL_DAY_KIND_LABELS, type SpecialDay, type SpecialDayKind } from "@/lib/special-days";
+import {
+  normalizeSpecialDays,
+  SPECIAL_DAY_KIND_LABELS,
+  DEFAULT_SPECIAL_DAY_PROMPTS,
+  loadSpecialDayPrompts,
+  saveSpecialDayPrompts,
+  resetSpecialDayPrompts,
+  type SpecialDay,
+  type SpecialDayKind,
+  type SpecialDayPromptTemplates,
+} from "@/lib/special-days";
 import { removeCharacterChatReferences } from "@/lib/character-chat-cleanup";
 
 type ViewType = "list" | "detail";
@@ -1883,6 +1893,10 @@ function CharArchiveView({
   const [timeZone, setTimeZone] = useState(char.timeZone || "");
   const [tags, setTags] = useState<string[]>(char.tags || []);
   const [specialDays, setSpecialDays] = useState<SpecialDay[]>(char.specialDays || []);
+  // 重要日子提示词模板：所有角色共用，独立于角色表单的「保存」，点自己的保存按钮即刻生效
+  const [dayPromptsOpen, setDayPromptsOpen] = useState(false);
+  const [dayPrompts, setDayPrompts] = useState<SpecialDayPromptTemplates>(DEFAULT_SPECIAL_DAY_PROMPTS);
+  const [dayPromptsNotice, setDayPromptsNotice] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [showTimeZonePicker, setShowTimeZonePicker] = useState(false);
   const [timeZoneSearch, setTimeZoneSearch] = useState(char.timeZone || "");
@@ -2606,6 +2620,74 @@ function CharArchiveView({
                       {text}
                     </button>
                   ))}
+                </div>
+              )}
+              {isEditing && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!dayPromptsOpen) setDayPrompts(loadSpecialDayPrompts());
+                      setDayPromptsNotice("");
+                      setDayPromptsOpen(open => !open);
+                    }}
+                    className="ts-10 px-3 py-1 bg-transparent border border-[#999] rounded-full cursor-pointer"
+                  >
+                    {dayPromptsOpen ? "收起提示词" : "编辑提示词（所有角色共用）"}
+                  </button>
+                  {dayPromptsOpen && (
+                    <div className="mt-2 flex flex-col gap-2">
+                      <p className="ts-10 opacity-60">
+                        占位符：{"{{lines}}"} 是具体的日子列表，{"{{char}}"} 是角色名，{"{{user}}"} 是你的名字。模板里不写 {"{{lines}}"} 的话，日子列表会放在文字前面。保存后对所有角色立即生效。
+                      </p>
+                      {([
+                        ["today", "当天（强提示）", 6],
+                        ["soon", "7 天内", 3],
+                        ["later", "30 天内", 3],
+                      ] as Array<[keyof SpecialDayPromptTemplates, string, number]>).map(([key, label, rows]) => (
+                        <div key={key} className="flex flex-col gap-1">
+                          <span className="ts-10 opacity-70">{label}</span>
+                          <textarea
+                            value={dayPrompts[key]}
+                            rows={rows}
+                            onChange={e => setDayPrompts(prev => ({ ...prev, [key]: e.target.value }))}
+                            style={{
+                              width: "100%",
+                              background: "transparent",
+                              border: "1px dashed #666",
+                              padding: "4px 6px",
+                              fontSize: "calc(12px*var(--app-text-scale,1))",
+                              resize: "vertical",
+                            }}
+                          />
+                        </div>
+                      ))}
+                      <div className="flex gap-1 items-center flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            saveSpecialDayPrompts(dayPrompts);
+                            setDayPromptsNotice("已保存");
+                          }}
+                          className="ts-10 px-3 py-1 bg-[#111111] text-white border-none rounded-full cursor-pointer hover:bg-[#222222] transition-colors"
+                        >
+                          保存提示词
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            resetSpecialDayPrompts();
+                            setDayPrompts(DEFAULT_SPECIAL_DAY_PROMPTS);
+                            setDayPromptsNotice("已恢复默认");
+                          }}
+                          className="ts-10 px-3 py-1 bg-transparent border border-[#999] rounded-full cursor-pointer"
+                        >
+                          恢复默认
+                        </button>
+                        {dayPromptsNotice && <span className="ts-10 opacity-60">{dayPromptsNotice}</span>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
