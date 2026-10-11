@@ -11,6 +11,8 @@ import {
 import { loadChatAppSettings, saveChatAppSettings } from "@/lib/chat-storage";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import { getApiLogs, clearApiLogs, type DebugInfo } from "@/lib/chat-engine";
+import { classifyLogError } from "@/lib/api-log-store";
+import { ErrorLogViewer } from "./error-log-viewer";
 import type { FollowUpConfig } from "@/lib/settings-storage";
 import { PageShell } from "@/components/ui/page-shell";
 import { CHAT_APP_CSS_EXAMPLE } from "@/lib/css-examples";
@@ -42,6 +44,7 @@ import {
     ChevronRight,
     Clock,
     FileCode2,
+    AlertTriangle,
     Heart,
     MessageSquare,
     MessageSquareDashed,
@@ -151,6 +154,7 @@ function isBrowserNotificationGranted(): boolean {
 export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) {
     const [showFollowUpEditor, setShowFollowUpEditor] = useState(false);
     const [showApiLog, setShowApiLog] = useState(false);
+    const [showErrorLog, setShowErrorLog] = useState(false);
     const [showStickerManager, setShowStickerManager] = useState(false);
     const [showPluginManager, setShowPluginManager] = useState(false);
     const [showCSSEditor, setShowCSSEditor] = useState(false);
@@ -266,6 +270,9 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     }
     if (showApiLog) {
         return <ApiLogViewer onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowApiLog(false); }} />;
+    }
+    if (showErrorLog) {
+        return <ErrorLogViewer onBack={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: false })); setShowErrorLog(false); }} />;
     }
     if (showCSSEditor) {
         return <ChatCSSEditor onBack={() => { setShowCSSEditor(false); }} />;
@@ -469,11 +476,20 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                             <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
                         </button>
 
-                        <button className="flex items-center gap-3 py-3.5 w-full" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowApiLog(true); }}>
+                        <button className="flex items-center gap-3 py-3.5 w-full border-b border-[color-mix(in_srgb,var(--c-card-border)_20%,transparent)]" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowApiLog(true); }}>
                             <FileCode2 size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
                             <div className="flex flex-col flex-1 text-left gap-0.5">
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">底层调用大模型日志</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">查看网络通信中大模型的原始数据流</span>
+                            </div>
+                            <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
+                        </button>
+
+                        <button className="flex items-center gap-3 py-3.5 w-full" onClick={() => { window.dispatchEvent(new CustomEvent("chat-hide-tabbar", { detail: true })); setShowErrorLog(true); }}>
+                            <AlertTriangle size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
+                            <div className="flex flex-col flex-1 text-left gap-0.5">
+                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">报错日志</span>
+                                <span className="ts-11 text-[var(--c-text)] opacity-70">只看失败的请求：先看状态码，完整请求折叠在后面</span>
                             </div>
                             <ChevronRight size={16} className="text-[var(--c-icon)] opacity-50" />
                         </button>
@@ -753,6 +769,18 @@ function ApiLogViewer({ onBack }: { onBack: () => void }) {
                                         >
                                             <div className="menu-label-group">
                                                 <div className="flex items-center gap-2 flex-wrap">
+                                                    {(() => {
+                                                        // 失败的调用在列表行上直接标出状态码，不用翻到最底下看
+                                                        const failure = classifyLogError(log);
+                                                        return failure ? (
+                                                            <span
+                                                                className="ts-11 font-bold rounded-[4px] px-[6px] py-[1px] shrink-0"
+                                                                style={{ background: "var(--c-danger)", color: "#fff" }}
+                                                            >
+                                                                {failure.code}
+                                                            </span>
+                                                        ) : null;
+                                                    })()}
                                                     {log.characterName && (
                                                         <span className="ts-11 font-semibold text-white bg-[var(--c-icon-active)] rounded-[4px] px-[6px] py-[1px] shrink-0">
                                                             {log.characterName}

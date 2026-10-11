@@ -19,7 +19,74 @@ export type DebugInfo = {
     source?: "chat" | "background" | "qa";
     /** 归属通道：qa 进工坊专用环，其余进底层调用日志环。分流只认这个显式字段，不看角色名 */
     channel?: "chat" | "qa";
+    /** 失败请求的 HTTP 状态码（400、503 等）；网络层失败没有状态码 */
+    status?: number;
+    /** 这条记录是否是一次失败的请求（报错日志窗口只显示这类） */
+    isError?: boolean;
 };
+
+export type LogErrorInfo = {
+    /** 列表里醒目显示的编码：HTTP 状态码，或「超时」「网络中断」「安全过滤」等 */
+    code: string;
+    status?: number;
+    kind: "http" | "network" | "safety" | "other";
+    /** 一行摘要，优先取接口返回的 error.message */
+    summary: string;
+    /** 去掉前缀标签后的错误正文 */
+    detail: string;
+};
+
+function stripErrorPrefix(raw: string): string {
+    return raw.replace(/^\[[^\]]*\]\s*/, "");
+}
+
+/** 从接口返回的错误正文里尽量取出人能读的一句话（JSON 里的 error.message / message）。 */
+function extractErrorMessage(body: string): string {
+    const text = body.trim();
+    if (!text) return "";
+    try {
+        const parsed: unknown = JSON.parse(text);
+        const obj = (Array.isArray(parsed) ? parsed[0] : parsed) as Record<string, unknown> | undefined;
+        const err = obj?.error;
+        if (typeof err === "string") return err;
+        if (err && typeof err === "object" && typeof (err as Record<string, unknown>).message === "string") {
+            return (err as Record<string, string>).message;
+        }
+        if (typeof obj?.message === "string") return obj.message;
+    } catch { /* 不是 JSON，直接用原文 */ }
+    return text.split("\n").find(line => line.trim())?.trim() ?? "";
+}
+
+/**
+ * 判断一条日志是不是失败请求，并提炼状态码与摘要。
+ * 优先认显式字段（status / isError）；旧日志没有这些字段时，按 rawResponse 开头的标签识别，
+ * 所以升级前已经存下的失败记录也能被归类。
+ */
+export function classifyLogError(log: Pick<DebugInfo, "status" | "isError" | "rawResponse">): LogErrorInfo | null {
+    const raw = log.rawResponse ?? "";
+    const httpMatch = raw.match(/^\[API 错误 (\d{3})\]/);
+    const status = log.status ?? (httpMatch ? Number(httpMatch[1]) : undefined);
+    const detail = stripErrorPrefix(raw);
+    const cut = (text: string) => (text.length > 140 ? `${text.slice(0, 140)}…` : text);
+
+    if (status !== undefined && status >= 400) {
+        return { code: String(status), status, kind: "http", summary: cut(extractErrorMessage(detail) || "接口返回错误"), detail };
+    }
+    if (raw.startsWith("[被模型安全过滤中断")) {
+        return { code: "安全过滤", kind: "safety", summary: "模型因安全过滤中途停止，回复不完整", detail };
+    }
+    if (raw.startsWith("[请求失败]")) {
+        const lower = detail.toLowerCase();
+        const code = /abort|timeout|timed out|超时/.test(lower) ? "超时"
+            : /load failed|failed to fetch|network|断开|reset/.test(lower) ? "网络中断"
+            : "请求失败";
+        return { code, kind: "network", summary: cut(detail.split("\n")[0] || "请求没有发出或中途断开"), detail };
+    }
+    if (log.isError) {
+        return { code: "失败", kind: "other", summary: cut(detail.split("\n")[0] || "调用失败"), detail };
+    }
+    return null;
+}
 
 // 底层调用日志环容量。原为 50：聊天请求与 18 处 simpleLLMCall 后台调用（记忆总结、
 // NPC 生成、剧情、地图等）共享一个环，用户想看自己刚才那次聊天时很容易已被后台调用
@@ -127,6 +194,13 @@ function trimLogsForStorage(logs: DebugInfo[], maxCount: number, maxSerializedCh
 
 export function getApiLogs(): DebugInfo[] { return _loadLogs(API_LOGS_KEY); }
 export function clearApiLogs(): void { try { kvRemove(API_LOGS_KEY); } catch { } }
+/** 只清掉失败记录，保留成功调用的日志。 */
+export function clearApiErrorLogs(): void {
+    try {
+        const kept = _loadLogs(API_LOGS_KEY).filter(log => !classifyLogError(log));
+        _saveLogs(API_LOGS_KEY, kept);
+    } catch { /* 日志失败不影响主流程 */ }
+}
 
 /** 工坊专用调用记录（仅工坊 UI 读取，与底层日志完全隔离）。 */
 export function getQaApiLogs(): DebugInfo[] { return _loadLogs(QA_LOGS_KEY); }
