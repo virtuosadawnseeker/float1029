@@ -366,7 +366,7 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                                         className="menu-item"
                                         onClick={() => {
                                             const chars = loadCharacters();
-                                            const found = chars.find(c => c.wechatID === searchQuery.trim() || c.id === searchQuery.trim());
+                                            const found = chars.find(c => !c.tags?.includes("配角") && (c.wechatID === searchQuery.trim() || c.id === searchQuery.trim())); // 配角不开放搜索，只能通过名片添加
                                             setSearchResult(found || null);
                                         }}
                                     >

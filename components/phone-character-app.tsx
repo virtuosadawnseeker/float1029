@@ -1204,7 +1204,7 @@ function CharListView({
           <button
             type="button"
             className="wt-link-hint"
-            style={{ top: 'auto', bottom: 16, left: 16, zIndex: 100000, cursor: 'pointer', pointerEvents: 'auto' }}
+            style={{ top: 'auto', bottom: 16, left: 16, right: 'auto', transform: 'rotate(-0.6deg)', zIndex: 100000, cursor: 'pointer', pointerEvents: 'auto' }}
             onClick={() => setShowSupporting(v => !v)}
           >
             配角 {supportingCount} · {showSupporting ? '点此折叠' : '点此展开'}
