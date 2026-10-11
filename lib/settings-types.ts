@@ -329,6 +329,9 @@ export type BindingConfig = {
     characterBindings: CharacterBinding[];
     /** Auxiliary API: used for memory summarization (global, not per-character) */
     memorySummaryApiConfigId?: string;
+    /** Auxiliary API: backup for memory summarization. Used only when the main summary API keeps failing
+     *  (5xx/429/network). Unlike other auxiliary fields, unset means "no backup", not "inherit global". */
+    memorySummaryFallbackApiConfigId?: string;
     /** Auxiliary API: used for embedding/vector recall (global, not per-character) */
     embeddingApiConfigId?: string;
     /** Auxiliary API: used by the mascot assistant (global, not per-character) */

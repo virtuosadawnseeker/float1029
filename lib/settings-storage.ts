@@ -1000,6 +1000,7 @@ export function removeApiConfigReferences(apiConfigId: string): void {
     if (config.appDefaults) next.appDefaults = cleanSlotMap(config.appDefaults);
     const auxFields = [
         "memorySummaryApiConfigId",
+        "memorySummaryFallbackApiConfigId",
         "embeddingApiConfigId",
         "mascotApiConfigId",
         "qaApiConfigId",
@@ -1099,6 +1100,18 @@ export function resolveAuxiliaryApiConfig(
         return apiConfigs.find(c => c.id === config.globalDefaults.apiConfigId) ?? null;
     }
     return null;
+}
+
+/**
+ * 可选的备用辅助 API：只认显式绑定，没绑（或绑的配置已被删）就返回 null，
+ * 不会像 resolveAuxiliaryApiConfig 那样退回全局默认——否则「没设备用」会变成「用同一个接口再试一次」。
+ */
+export function resolveOptionalAuxiliaryApiConfig(
+    field: "memorySummaryFallbackApiConfigId"
+): ApiConfig | null {
+    const auxId = loadBindingConfig()[field];
+    if (!auxId) return null;
+    return loadApiConfigs().find(c => c.id === auxId) ?? null;
 }
 
 /**

@@ -9,8 +9,8 @@ import {
     getLastCoreSummarizedTimestamp,
     setLastCoreSummarizedTimestamp,
 } from "./memory-storage";
-import { resolveAuxiliaryApiConfig } from "./settings-storage";
-import { simpleLLMCall } from "./api-helpers";
+import { resolveAuxiliaryApiConfig, resolveOptionalAuxiliaryApiConfig } from "./settings-storage";
+import { resilientLLMCall } from "./api-helpers";
 
 const coreBuildingSet = new Set<string>();
 
@@ -82,10 +82,15 @@ export async function runCoreMemoryPipeline(
         .replace(/\{\{events\}\}/gi, eventsText)
         .replace(/\{\{longTermMemories\}\}/gi, eventsText);
 
-    const result = await simpleLLMCall(
+    const result = await resilientLLMCall(
         apiConfig,
         [{ role: "user", content: prompt }],
-        { temperature: 0.3, label: `核心记忆·${characterName}`, stream: true },
+        {
+            temperature: 0.3,
+            label: `核心记忆·${characterName}`,
+            stream: true,
+            fallbackConfig: resolveOptionalAuxiliaryApiConfig("memorySummaryFallbackApiConfigId"),
+        },
     );
 
     if (!result.content) {
