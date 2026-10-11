@@ -529,6 +529,10 @@ function CharListView({
     ?? worldGroups[0];
   const memberSet = new Set(currentGroup?.memberIds ?? []);
   const worldCharacters = characters.filter(c => memberSet.has(c.id));
+  // 配角（NPC 生成/名片建档的角色，带「配角」标签）默认折叠，不占画布；点工具条的「配角」chip 展开
+  const [showSupporting, setShowSupporting] = useState(false);
+  const supportingCount = worldCharacters.filter(c => c.tags?.includes("配角")).length;
+  const visibleCharacters = showSupporting ? worldCharacters : worldCharacters.filter(c => !c.tags?.includes("配角"));
   const worldBgItems = (bgItems || []).filter(item => (item.worldId ?? DEFAULT_CHARACTER_WORLD_ID) === currentWorldId);
   const memberCounts = new Map(worldGroups.map(g => [g.id, g.memberIds.length]));
   const nameById = new Map(characters.map(c => [c.id, c.name || "未命名"]));
@@ -1196,6 +1200,16 @@ function CharListView({
             正在从 <strong>{nameById.get(linkFromId) ?? "?"}</strong> 拉线 · 点另一张照片牵上关系，点空白处取消
           </div>
         )}
+        {supportingCount > 0 && (
+          <button
+            type="button"
+            className="wt-link-hint"
+            style={{ top: 'auto', bottom: 16, left: 16, zIndex: 100000, cursor: 'pointer', pointerEvents: 'auto' }}
+            onClick={() => setShowSupporting(v => !v)}
+          >
+            配角 {supportingCount} · {showSupporting ? '点此折叠' : '点此展开'}
+          </button>
+        )}
         {worldCharacters.length === 0 && worldBgItems.length === 0 ? (
           <div className="char-empty" style={{ zIndex: 100 }}>
             <div className="char-empty-icon">
@@ -1223,7 +1237,7 @@ function CharListView({
               </DraggableNode>
             ))}
 
-            {worldCharacters.map((char, idx) => {
+            {visibleCharacters.map((char, idx) => {
               if (char.canvasX === undefined) return null;
               const hash = char.id.charCodeAt(0) + idx * 17;
               const styleIdx = char.polaroidStyle ?? (hash % 5);
@@ -1292,8 +1306,8 @@ function CharListView({
             {/* 把拉线放在所有卡片的最后渲染，并设置超高 zIndex，使其盖在所有照片之上 */}
             <svg className="absolute top-0 left-0 w-[10000px] h-[10000px] pointer-events-none overflow-visible" style={{ zIndex: 99999 }}>
               {relationLines.map(line => {
-                const a = worldCharacters.find(c => c.id === line.aId);
-                const b = worldCharacters.find(c => c.id === line.bId);
+                const a = visibleCharacters.find(c => c.id === line.aId);
+                const b = visibleCharacters.find(c => c.id === line.bId);
                 if (!a || !b || a.canvasX === undefined || a.canvasY === undefined || b.canvasX === undefined || b.canvasY === undefined) return null;
                 const x1 = a.canvasX + 60, y1 = a.canvasY + 60;
                 const x2 = b.canvasX + 60, y2 = b.canvasY + 60;
