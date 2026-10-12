@@ -768,6 +768,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   const videoCaptionMeasureRef = useRef<HTMLDivElement | null>(null);
   const [messagePanel, setMessagePanel] = useState<XiaohongshuMessagePanel | null>(null);
   const [selectedDmThreadId, setSelectedDmThreadId] = useState<string | null>(null);
+  const [dmPickerOpen, setDmPickerOpen] = useState(false);
   const [draftDmThread, setDraftDmThread] = useState<{ id: string; actorName: string } | null>(null);
   const [dmDraft, setDmDraft] = useState("");
   const [dmEmojiOpen, setDmEmojiOpen] = useState(false);
@@ -1072,9 +1073,15 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   }
 
   function handleStartDmWithAuthor(note: XiaohongshuNote) {
-    const name = note.authorName.trim();
-    if (!name || note.source === "user") return;
+    if (note.source === "user") return;
+    handleStartDmWithName(note.authorName);
+  }
+
+  function handleStartDmWithName(rawName: string) {
+    const name = rawName.trim();
+    if (!name) return;
     const threadId = `dm:${name}`;
+    setDmPickerOpen(false);
     setDraftDmThread({ id: threadId, actorName: name });
     setSelectedNoteId(null);
     setMessagePanel(null);
@@ -3081,6 +3088,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
               <div className="xhs-message-section-title">
                 <strong>私信</strong>
                 {dmThreads.length > 0 ? <span>{dmThreads.length} 个对话</span> : null}
+                <button type="button" className="xhs-dm-start-btn" disabled={busy !== "idle"} onClick={() => setDmPickerOpen(true)}>＋ 发起私信</button>
               </div>
               <div className="cp-xhs-thread-list">
                 {dmThreads.length === 0 ? <div className="cp-xhs-mini-empty">暂无私信</div> : null}
@@ -3328,6 +3336,39 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                     {busy === "publish" ? <Loader2 className="cp-spin" size={18} /> : <Send size={18} />}
                     发布笔记
                   </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {dmPickerOpen ? (
+        <div className="xhs-modal-backdrop" onClick={() => setDmPickerOpen(false)}>
+          <section className="xhs-profile-edit-sheet xhs-settings-edit-sheet" onClick={event => event.stopPropagation()}>
+            <header className="xhs-profile-edit-header">
+              <strong>发起私信</strong>
+              <button type="button" className="xhs-sheet-close-btn" onClick={() => setDmPickerOpen(false)} aria-label="关闭">×</button>
+            </header>
+            <div className="xhs-profile-edit-body">
+              <div className="xhs-profile-edit-field">
+                <span className="xhs-profile-edit-section-title">PARTICIPANTS <em>选择要私信的参与角色</em></span>
+                <div className="xhs-settings-edit-participants">
+                  {characters.filter(character => state.settings.participantCharacterIds.includes(character.id)).length === 0 ? (
+                    <span className="xhs-settings-edit-participants-empty">暂无参与角色，请先在设置里勾选</span>
+                  ) : (
+                    characters
+                      .filter(character => state.settings.participantCharacterIds.includes(character.id))
+                      .map((character) => {
+                        const displayName = resolveCharacterXiaohongshuDisplayName(character);
+                        return (
+                          <button key={character.id} type="button" onClick={() => handleStartDmWithName(displayName)}>
+                            <span>{character.avatar ? <img src={character.avatar} alt="" /> : displayName.slice(0, 1)}</span>
+                            <em>{displayName}</em>
+                          </button>
+                        );
+                      })
+                  )}
                 </div>
               </div>
             </div>

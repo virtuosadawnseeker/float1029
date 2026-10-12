@@ -2924,3 +2924,6 @@ textarea.xhs-profile-edit-pill.xhs-profile-edit-bio {
 .xhs-account-chip:disabled { opacity: .5; }
 .xhs-account-actions { display: flex; gap: 16px; margin-top: 10px; }
 .xhs-account-actions button { background: none; border: 0; padding: 4px 0; font: inherit; font-size: calc(12px*var(--app-text-scale,1)); color: #6b7078; text-decoration: underline; cursor: pointer; }
+
+.xhs-dm-start-btn { margin-left: auto; background: none; border: 0; padding: 4px 0; font: inherit; font-size: calc(12px*var(--app-text-scale,1)); color: #ff2442; cursor: pointer; }
+.xhs-dm-start-btn:disabled { opacity: .5; }
