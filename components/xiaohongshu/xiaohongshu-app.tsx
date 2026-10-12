@@ -1526,7 +1526,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
     setSettingsOpen(false);
   }
 
-  function reloadForAccount(registry: ReturnType<typeof loadXiaohongshuAccountRegistry>) {
+  function reloadForAccount(registry: ReturnType<typeof loadXiaohongshuAccountRegistry>, keepSettingsOpen = false) {
     const next = loadXiaohongshuState();
     setAccountRegistry(registry);
     setState(next);
@@ -1538,13 +1538,13 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
     setReplyTarget(null);
     setCommentDraft("");
     setSelectedTab("home");
-    setSettingsOpen(false);
+    setSettingsOpen(keepSettingsOpen);
     clearErrorState();
   }
 
   function handleSwitchAccount(accountId: string) {
     if (busy !== "idle" || accountId === accountRegistry.activeId) return;
-    reloadForAccount(switchXiaohongshuAccount(accountId));
+    reloadForAccount(switchXiaohongshuAccount(accountId), true);
     onNotice?.("已切换小红书账号");
   }
 
@@ -1552,7 +1552,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
     if (busy !== "idle") return;
     const name = window.prompt("新账号的名字（比如：兽人世界）", "");
     if (name === null) return;
-    reloadForAccount(createXiaohongshuAccount(name));
+    reloadForAccount(createXiaohongshuAccount(name), true);
     onNotice?.("已创建新账号。参与角色默认为空，请到设置里勾选");
   }
 
@@ -3279,21 +3279,22 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
             <div className="xhs-profile-edit-body">
               <div className="xhs-profile-edit-field">
                 <span className="xhs-profile-edit-section-title">ACCOUNT <em>账号（各自独立的笔记、关注和参与角色）</em></span>
-                <div className="xhs-settings-edit-participants">
+                <div className="xhs-account-current">当前账号：<strong>{accountRegistry.accounts.find(item => item.id === accountRegistry.activeId)?.name ?? "账号 1"}</strong></div>
+                <div className="xhs-account-chips">
                   {accountRegistry.accounts.map(account => (
                     <button
                       key={account.id}
                       type="button"
-                      className={account.id === accountRegistry.activeId ? "is-selected" : ""}
+                      className={`xhs-account-chip ${account.id === accountRegistry.activeId ? "is-active" : ""}`}
                       disabled={busy !== "idle"}
                       onClick={() => handleSwitchAccount(account.id)}
                     >
-                      {account.name}
+                      {account.id === accountRegistry.activeId ? "✓ " : ""}{account.name}
                     </button>
                   ))}
-                  <button type="button" disabled={busy !== "idle"} onClick={handleCreateAccount}>＋ 新账号</button>
+                  <button type="button" className="xhs-account-chip xhs-account-chip--ghost" disabled={busy !== "idle"} onClick={handleCreateAccount}>＋ 新账号</button>
                 </div>
-                <div className="xhs-settings-edit-participants">
+                <div className="xhs-account-actions">
                   <button type="button" onClick={handleRenameAccount}>重命名当前账号</button>
                   {accountRegistry.activeId !== "default" ? (
                     <button type="button" disabled={busy !== "idle"} onClick={handleDeleteAccount}>删除当前账号</button>

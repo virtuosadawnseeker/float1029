@@ -2903,3 +2903,24 @@ textarea.xhs-profile-edit-pill.xhs-profile-edit-bio {
   font-size: calc(12.5px*var(--app-text-scale,1));
   animation: xhsFadeIn 0.18s ease-out;
 }
+
+/* 账号切换 */
+.xhs-account-current { font-size: calc(12px*var(--app-text-scale,1)); color: #4a4f57; margin-bottom: 8px; }
+.xhs-account-current strong { color: #14161a; }
+.xhs-account-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.xhs-account-chip {
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 18px;
+  border: 1px solid #d9dce1;
+  background: #fff;
+  color: #14161a;
+  font: inherit;
+  font-size: calc(13px*var(--app-text-scale,1));
+  cursor: pointer;
+}
+.xhs-account-chip.is-active { background: #ff2442; border-color: #ff2442; color: #fff; font-weight: 600; }
+.xhs-account-chip--ghost { border-style: dashed; color: #4a4f57; }
+.xhs-account-chip:disabled { opacity: .5; }
+.xhs-account-actions { display: flex; gap: 16px; margin-top: 10px; }
+.xhs-account-actions button { background: none; border: 0; padding: 4px 0; font: inherit; font-size: calc(12px*var(--app-text-scale,1)); color: #6b7078; text-decoration: underline; cursor: pointer; }
