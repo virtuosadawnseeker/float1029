@@ -347,16 +347,10 @@ export function loadXiaohongshuState(): XiaohongshuState {
     const notes = Array.isArray(parsed.notes)
       ? parsed.notes.map(normalizeXiaohongshuNote).filter((note): note is XiaohongshuNote => Boolean(note))
       : [];
-    const noteSourceById = new Map(notes.map(note => [note.id, note.source]));
     const notifications = Array.isArray(parsed.notifications)
       ? parsed.notifications
         .map(normalizeNotification)
         .filter((notice): notice is XiaohongshuNotification => Boolean(notice))
-        .filter((notice) => {
-          if (!notice.noteId) return true;
-          const source = noteSourceById.get(notice.noteId);
-          return !source || source === "user";
-        })
       : [];
     const rawInteractions = parsed.userInteractions ?? parsed.user_interactions;
     const userInteractions = normalizeXiaohongshuUserInteractions(rawInteractions);
