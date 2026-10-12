@@ -1343,6 +1343,56 @@ export async function generateXiaohongshuNpcDmReply(input: {
   return parseWithDebug(raw, parseXiaohongshuNpcDmReply, "无法解析小红书私信回复");
 }
 
+/**
+ * 用户给「参与角色」发私信时，由该角色自己的小红书绑定（API/预设/世界书/记忆）回复，
+ * 而不是路人提示词。拿不到该角色的 API 配置时返回 null，调用方回退到路人私信回复。
+ */
+export async function generateXiaohongshuCharacterDmReply(input: {
+  characterId: string;
+  threadName: string;
+  userName: string;
+  messages: XiaohongshuNotification[];
+  latestUserText: string;
+  settings?: XiaohongshuSettings;
+}): Promise<ParsedXiaohongshuNpcDmReply | null> {
+  const resolved = await resolveCharacterAssemblerInput(input.characterId, ["xiaohongshu", "dm"], {}, input.settings);
+  if (!resolved?.apiConfig) return null;
+  const messages = assemblePromptPayload(resolved.input);
+  const dmContext = prependXiaohongshuUserIdentityHint(
+    formatXiaohongshuDmContext(input),
+    buildXiaohongshuUserIdentityHint({ characterId: input.characterId, xiaohongshuNames: [input.userName] }),
+  );
+  messages.push({
+    role: "user",
+    content: [
+      "你现在在小红书的私信里收到了一个账号发来的消息，请以你自己的身份、人设、关系和当下状态回复。",
+      "对方的小红书昵称显示在下面的上下文里；是否认识对方，按上面的身份提示判断，不要凭空断定对方的现实身份。",
+      "可以连续回复 1 到 4 条消息，像真实私聊，可以短句、口语、带 emoji。不要替对方说话，不要输出系统解释或 Markdown。",
+      "",
+      "<xiaohongshu_dm_context>",
+      dmContext,
+      "</xiaohongshu_dm_context>",
+      "",
+      "输出格式：",
+      "#私信回复1",
+      "[正文]回复内容",
+      "",
+      "#私信回复2",
+      "[正文]第二条回复内容（可省略）",
+    ].join("\n"),
+    _debugMeta: { marker: "xiaohongshu_character_dm_reply" },
+  } as LLMMessage);
+  const raw = await sendLLMRequest(
+    resolved.apiConfig,
+    resolved.preset,
+    messages,
+    resolved.regexes,
+    { characterName: `小红书私信:${resolved.character.name}`, userName: resolved.input.userIdentity?.name },
+    { appId: "xiaohongshu", appTags: ["xiaohongshu", "dm"] },
+  );
+  return parseWithDebug(raw, parseXiaohongshuNpcDmReply, "无法解析小红书私信回复");
+}
+
 export async function generateXiaohongshuCharacterReplyToUserComment(
   characterId: string,
   note: XiaohongshuNote,

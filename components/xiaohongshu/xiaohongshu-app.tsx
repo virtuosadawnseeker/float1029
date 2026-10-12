@@ -45,6 +45,7 @@ import {
   applyNpcReaction,
   generateXiaohongshuCharacterActivity,
   generateXiaohongshuCharacterMentionReply,
+  generateXiaohongshuCharacterDmReply,
   generateXiaohongshuCharacterReplyToUserComment,
   generateXiaohongshuCharacterReactionToUserPost,
   generateXiaohongshuNpcFeed,
@@ -767,6 +768,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   const videoCaptionMeasureRef = useRef<HTMLDivElement | null>(null);
   const [messagePanel, setMessagePanel] = useState<XiaohongshuMessagePanel | null>(null);
   const [selectedDmThreadId, setSelectedDmThreadId] = useState<string | null>(null);
+  const [draftDmThread, setDraftDmThread] = useState<{ id: string; actorName: string } | null>(null);
   const [dmDraft, setDmDraft] = useState("");
   const [dmEmojiOpen, setDmEmojiOpen] = useState(false);
   const [commentEmojiOpen, setCommentEmojiOpen] = useState(false);
@@ -824,7 +826,18 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
       })
       .sort((a, b) => Date.parse(b.latest.createdAt) - Date.parse(a.latest.createdAt));
   }, [dmNotifications]);
-  const selectedDmThread = selectedDmThreadId ? dmThreads.find(thread => thread.id === selectedDmThreadId) ?? null : null;
+  const selectedDmThread = selectedDmThreadId
+    ? dmThreads.find(thread => thread.id === selectedDmThreadId)
+      ?? (draftDmThread && draftDmThread.id === selectedDmThreadId
+        ? {
+            id: draftDmThread.id,
+            actorName: draftDmThread.actorName,
+            notifications: [],
+            latest: makeXiaohongshuNotification({ type: "dm", actorName: draftDmThread.actorName, text: "", unread: false }),
+            unreadCount: 0,
+          }
+        : null)
+    : null;
   const selectedMessageNotifications = messagePanel
     ? state.notifications.filter(item => messagePanel === "engagement" ? item.type === "like" || item.type === "save" : item.type === messagePanel)
     : [];
@@ -1058,6 +1071,17 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
     });
   }
 
+  function handleStartDmWithAuthor(note: XiaohongshuNote) {
+    const name = note.authorName.trim();
+    if (!name || note.source === "user") return;
+    const threadId = `dm:${name}`;
+    setDraftDmThread({ id: threadId, actorName: name });
+    setSelectedNoteId(null);
+    setMessagePanel(null);
+    setSelectedTab("messages");
+    setSelectedDmThreadId(threadId);
+  }
+
   function handleOpenDmThread(thread: XiaohongshuDmThread) {
     setMessagePanel(null);
     setSelectedDmThreadId(thread.id);
@@ -1134,7 +1158,22 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
       return;
     }
     try {
-      const reply = await generateXiaohongshuNpcDmReply({
+      // 对话对象是「参与角色」时，由该角色本人回复；否则走路人私信回复
+      const dmCharacter = characters.find(item =>
+        current.settings.participantCharacterIds.includes(item.id)
+        && (resolveCharacterXiaohongshuDisplayName(item) === threadName || item.name === threadName)
+      );
+      const characterReply = dmCharacter
+        ? await generateXiaohongshuCharacterDmReply({
+            characterId: dmCharacter.id,
+            threadName,
+            userName,
+            messages: baseMessages,
+            latestUserText,
+            settings: current.settings,
+          })
+        : null;
+      const reply = characterReply ?? await generateXiaohongshuNpcDmReply({
         threadName,
         userName,
         messages: baseMessages,
@@ -2845,6 +2884,11 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                   onClick={() => handleToggleFollowAuthor(selectedNote)}
                 >
                   {selectedAuthorFollowing ? "已关注" : "关注"}
+                </button>
+              ) : null}
+              {selectedNote.source !== "user" ? (
+                <button type="button" className="cp-xhs-detail-follow is-following" onClick={() => handleStartDmWithAuthor(selectedNote)}>
+                  私信
                 </button>
               ) : null}
               <button type="button" className="cp-xhs-detail-share" aria-label="分享" onClick={() => handleShareNote(selectedNote)}>
