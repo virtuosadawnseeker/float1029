@@ -3382,7 +3382,11 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                   max={100}
                   value={settingsDraft.sendToCharacterProbability}
                   placeholder="发给角色的概率 (0–100)"
-                  onChange={event => setSettingsDraft(prev => ({ ...prev, sendToCharacterProbability: Number(event.target.value) }))}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    // 允许输入过程中清空；保存时空值按 0 处理（见 handleSaveSettings）
+                    setSettingsDraft(prev => ({ ...prev, sendToCharacterProbability: (raw === "" ? "" : Number(raw)) as number }));
+                  }}
                 />
               </div>
 
