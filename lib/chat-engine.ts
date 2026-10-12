@@ -91,6 +91,7 @@ import {
 import { parseOfflineResponse, extractThinkingTag, type ParsedOfflineResponse } from "./chat-offline-storage";
 import { throwIfAborted } from "./abort-utils";
 import { armShortcutContinuation, SHORTCUT_VISION_OFF_NOTE, type ShortcutContinuationHandle, type ShortcutContinuationStyle } from "./shortcut-continuation-client";
+import { appendOfflineLengthHint } from "./offline-prompt-builder";
 
 
 
@@ -1993,6 +1994,7 @@ export async function buildChatPromptMessages(
             content: "本次自定义 APP AI 任务只输出严格 JSON。不要输出 Markdown 代码块、解释文字或聊天富媒体指令。",
         });
     }
+    appendOfflineLengthHint(llmMessages, effectiveAppTags);
     appendEmptyGenerateGuardMessage(llmMessages, config, historyForPrompt);
 
     return { llmMessages, character, config, preset, regexes, userIdentity, toolsEnabled };

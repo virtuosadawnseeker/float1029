@@ -92,3 +92,29 @@ export function buildOfflinePromptHistory(
     }
     return history;
 }
+
+/** 线下模式默认篇幅（中文字数）。按次计费的用户希望每轮写足，而预设里只有「可以较长」这种弱提示。 */
+export const OFFLINE_DEFAULT_MIN_CHARS = 400;
+export const OFFLINE_DEFAULT_TARGET_CHARS = "600～1000";
+
+/**
+ * 线下模式篇幅提示：追加在提示词末尾（离生成最近，约束力最强）。
+ * 放在代码里而不是内置预设里：改预设需要升版本号，会覆盖用户自己改过的预设副本。
+ * 用户明确要求写短时，以用户要求为准。
+ */
+export function buildOfflineLengthHint(): string {
+    return [
+        `【线下篇幅】本轮 <content> 正文请写足：通常 ${OFFLINE_DEFAULT_TARGET_CHARS} 字，不少于 ${OFFLINE_DEFAULT_MIN_CHARS} 字（以中文字数计）。`,
+        "不要只写一两句话就收束；把动作、环境、对话与心理自然铺开，让场景有推进、有细节。",
+        "若用户本轮明确要求简短，则以用户要求为准。篇幅要求只针对 <content> 正文，摘要字段仍保持简洁。",
+    ].join("\n");
+}
+
+/** 当前提示词属于线下模式时，在末尾追加篇幅提示。 */
+export function appendOfflineLengthHint(
+    llmMessages: Array<{ role: string; content: unknown }>,
+    appTags: readonly string[] | undefined,
+): void {
+    if (!appTags?.includes("offline")) return;
+    llmMessages.push({ role: "system", content: buildOfflineLengthHint() });
+}
