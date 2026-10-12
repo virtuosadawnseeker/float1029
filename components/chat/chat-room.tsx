@@ -4256,7 +4256,9 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             showChatToast("没有解析到线下正文");
             return;
         }
-        if (!parsed.summary.trim()) showChatToast(`未提取到 <${parsed.summaryTag}> 摘要`);
+        // 编辑框里没有摘要标签时（例如这条摘要是后来补提的、不在原始输出里），保留原摘要，避免被清空
+        const nextSummary = parsed.summary.trim() || turn.summary.trim();
+        if (!nextSummary) showChatToast(`未提取到 <${parsed.summaryTag}> 摘要`);
         // 思维链：parseOfflineResponse 已回归官方两参数（不再提取 thinking）。
         // 若该条原本带标签思维链（预设开启线下标签解析），按原标签从编辑后的正文重新提取，否则保持无。
         const editedThinking = turn.thinkingText !== undefined
@@ -4264,7 +4266,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             : undefined;
         const updated = updateChatOfflineTurn(session.id, turn.id, {
             assistantContent,
-            summary: parsed.summary.trim(),
+            summary: nextSummary,
             summaryTag: parsed.summaryTag,
             rawText: parsed.rawText,
             thinkingText: editedThinking,
