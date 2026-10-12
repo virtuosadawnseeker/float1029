@@ -63,7 +63,10 @@ function formatAuthorLabel(
   fallback: string,
 ): string {
   const name = cleanEventText(value, 80) || fallback;
-  return authorType === "user" ? `“${name}”（用户的小红书账号）` : `“${name}”`;
+  // 不在事件文本里标注"用户的小红书账号"：否则开启记忆来源后，角色会从记忆里直接得知
+  // 这个账号就是用户，绕过"是否关注/是否认得出"的判断。身份关系只通过身份提示单独告知。
+  void authorType;
+  return `“${name}”`;
 }
 
 function loadEventsByKey(key: string): XiaohongshuProjectionEntry[] {
@@ -191,7 +194,7 @@ export function recordXiaohongshuFollowUserEvent(input: RecordXiaohongshuFollowU
   upsertEvent(input.characterId, {
     id: "xiaohongshu_follow_user",
     timestamp,
-    content: `[小红书 ${time}] ${characterName}关注了“${userDisplayName}”（用户的小红书账号）。`,
+    content: `[小红书 ${time}] ${characterName}关注了“${userDisplayName}”。`,
   });
 }
 
