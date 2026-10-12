@@ -17,6 +17,7 @@ import {
 } from "./memory-storage";
 import { resolveAuxiliaryApiConfig, resolveOptionalAuxiliaryApiConfig } from "./settings-storage";
 import { loadNativeTimeline, formatTimelineForSummarization, filterTimelineByAllowedSources } from "./short-term-assembler";
+import type { NativeTimelineEntry } from "./short-term-assembler";
 import { generateEmbedding, resolveEmbeddingModel } from "./memory-embedding";
 import { resilientLLMCall } from "./api-helpers";
 import { maybeRunCoreMemoryPipeline } from "./core-memory-builder";
@@ -88,7 +89,62 @@ export async function runSummarizationPipeline(
         return { success: false, error: allEntries.length === 0 ? "没有可总结的事件" : "事件不足 4 条" };
     }
 
-    const formatted = formatTimelineForSummarization(allEntries);
+    // 素材太长时分段连续总结：每段各生成一条长期记忆，避免一次塞给模型过多内容。
+    const chunks = splitEntriesForSummarization(allEntries);
+    // 自动触发时单次最多处理 MAX_SUMMARY_CHUNKS_PER_RUN 段，剩余部分不清零计数，下一次回复会继续追；
+    // 手动总结（force / 指定起点）一口气处理完。
+    const isAuto = !options?.force && !options?.sinceTimestamp;
+    const runCount = isAuto ? Math.min(chunks.length, MAX_SUMMARY_CHUNKS_PER_RUN) : chunks.length;
+    for (let i = 0; i < runCount; i++) {
+        const chunkResult = await summarizeEntriesChunk(characterId, characterName, chunks[i], config, apiConfig);
+        // 失败时已完成的前几段水位线已推进，计数不清零，下次触发会从断点继续
+        if (!chunkResult.success) return chunkResult;
+    }
+    if (runCount >= chunks.length) resetEventCounter(characterId);
+
+    console.log(`[MemorySummarizer] Summarized ${allEntries.length} entries in ${runCount}/${chunks.length} chunk(s)`);
+    return { success: true };
+}
+
+/** 单段素材的字数上限（超过就拆成多段分别总结）。 */
+const SUMMARY_CHUNK_MAX_CHARS = 12000;
+/** 自动触发时单次最多连续总结几段，防止一次调用过多次 API。 */
+const MAX_SUMMARY_CHUNKS_PER_RUN = 6;
+
+/**
+ * 把按时间排序的素材按字数切段（贪心）。
+ * 末段不足 4 条时并入前一段，避免出现被「事件不足」拒绝的碎片段。
+ */
+function splitEntriesForSummarization(entries: NativeTimelineEntry[]): NativeTimelineEntry[][] {
+    const chunks: NativeTimelineEntry[][] = [];
+    let current: NativeTimelineEntry[] = [];
+    let currentChars = 0;
+    for (const entry of entries) {
+        const len = (entry.content?.length ?? 0) + 4;
+        if (current.length > 0 && currentChars + len > SUMMARY_CHUNK_MAX_CHARS) {
+            chunks.push(current);
+            current = [];
+            currentChars = 0;
+        }
+        current.push(entry);
+        currentChars += len;
+    }
+    if (current.length > 0) {
+        if (current.length < 4 && chunks.length > 0) chunks[chunks.length - 1].push(...current);
+        else chunks.push(current);
+    }
+    return chunks;
+}
+
+/** 总结一段素材并存为一条长期记忆。 */
+async function summarizeEntriesChunk(
+    characterId: string,
+    characterName: string,
+    entries: NativeTimelineEntry[],
+    config: ReturnType<typeof loadMemoryConfig>,
+    apiConfig: NonNullable<ReturnType<typeof resolveAuxiliaryApiConfig>>,
+): Promise<{ success: boolean; error?: string }> {
+    const formatted = formatTimelineForSummarization(entries);
     if (!formatted) return { success: false, error: "格式化事件数据失败" };
 
     const { eventsText, earliest, latest } = formatted;
@@ -138,7 +194,7 @@ export async function runSummarizationPipeline(
 
     // Determine sourceApp: use the most common source among summarized entries
     const sourceCounts = new Map<string, number>();
-    for (const e of allEntries) {
+    for (const e of entries) {
         sourceCounts.set(e.sourceApp, (sourceCounts.get(e.sourceApp) || 0) + 1);
     }
     let dominantSource = "chat";
@@ -147,7 +203,7 @@ export async function runSummarizationPipeline(
         if (count > maxCount) { dominantSource = src; maxCount = count; }
     }
     const sourceSessionIds = Array.from(new Set(
-        allEntries
+        entries
             .map(entry => entry.sessionId)
             .filter((sessionId): sessionId is string => Boolean(sessionId)),
     ));
@@ -165,16 +221,15 @@ export async function runSummarizationPipeline(
         createdAt: now,
         updatedAt: now,
         metadata: {
-            summarizedEvents: allEntries.length,
+            summarizedEvents: entries.length,
             timeSpan: `${earliest} ~ ${latest}`,
             sourceSessionIds,
         },
     };
     await saveMemoryEntry(longTermEntry);
 
-    // Update last summarized timestamp + reset counter
+    // 每段入库后立刻推进水位线（计数在所有段完成后由调用方清零）
     setLastSummarizedTimestamp(characterId, latest);
-    resetEventCounter(characterId);
 
     // Enforce long-term limit
     const allLongTerm = await loadMemoryEntries(characterId);
@@ -186,6 +241,6 @@ export async function runSummarizationPipeline(
     incrementCoreMemoryCounter(characterId);
     await maybeRunCoreMemoryPipeline(characterId, characterName);
 
-    console.log(`[MemorySummarizer] Summarized ${allEntries.length} entries → 1 long-term memory`);
+    console.log(`[MemorySummarizer] Summarized ${entries.length} entries → 1 long-term memory`);
     return { success: true };
 }
