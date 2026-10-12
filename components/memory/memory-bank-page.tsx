@@ -750,6 +750,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                             <MemoryTimeline
                                 events={shortTermEvents}
                                 userName={resolveUserIdentity(selectedCharId!)?.name || "用户"}
+                                allowedSources={config.shortTermAllowedSources}
                             />
                         </>
                     ) : activeTab === "shared" ? (
@@ -762,6 +763,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                             <MemoryTimeline
                                 events={sharedEvents}
                                 userName={resolveUserIdentity(selectedCharId!)?.name || "用户"}
+                                allowedSources={config.shortTermAllowedSources}
                             />
                         )
                     ) : activeTab === "core" ? (

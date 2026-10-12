@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import type { NativeTimelineEntry } from "@/lib/short-term-assembler";
+import { isTimelineEntryAllowed, type NativeTimelineEntry } from "@/lib/short-term-assembler";
+import type { MemoryConfig } from "@/lib/memory-types";
 import { buildTwoLevelMomentThreads } from "@/lib/moments-comment-threading";
 import { findStickerByName } from "@/lib/sticker-data";
 import { getChatImageFromIndexedDB } from "@/lib/chat-asset-storage";
@@ -68,7 +69,8 @@ type ParsedProjection = {
     message: string;
 };
 
-type ParsedEntry = ParsedChat | ParsedGroupChat | ParsedMoment | ParsedSystem | ParsedProjection;
+// excluded：该条事件的来源已在「记忆来源」里关闭——仍然显示在这一页，但不会被角色读取，也不进长期总结
+type ParsedEntry = (ParsedChat | ParsedGroupChat | ParsedMoment | ParsedSystem | ParsedProjection) & { excluded?: boolean };
 
 type TimelineCluster = {
     id: string;
@@ -78,6 +80,7 @@ type TimelineCluster = {
     tags: string[];
     excerpts: string[];
     entryCount: number;
+    excludedCount: number;
 };
 
 /* ================================================================
@@ -323,6 +326,7 @@ function buildCluster(entries: ParsedEntry[]): TimelineCluster {
         tags: Array.from(tagSet),
         excerpts,
         entryCount: entries.length,
+        excludedCount: entries.filter(e => e.excluded).length,
     };
 }
 
@@ -446,8 +450,11 @@ function ClusterDetail({ cluster }: { cluster: TimelineCluster }) {
                     }
                 }
                 return groups.map((group, gi) => (
-                    <div key={gi}>
+                    <div key={gi} className={group.entries.every(e => e.excluded) ? "mem-tl-excluded" : undefined}>
                         {gi > 0 && <div className="mem-tl-sep" />}
+                        {group.entries.every(e => e.excluded) && (
+                            <div className="mem-tl-excluded-note">未参与记忆（该来源已在「记忆来源」中关闭）</div>
+                        )}
                         {group.type === "chat-group" ? (
                             <div className="mem-tl-chat-group">
                                 {group.entries.map(entry => {
@@ -598,19 +605,27 @@ function ClusterDetail({ cluster }: { cluster: TimelineCluster }) {
 type Props = {
     events: NativeTimelineEntry[];
     userName: string;
+    /** 记忆来源开关；传入后，来源被关闭的条目会标灰并注明「未参与记忆」（只影响显示） */
+    allowedSources?: MemoryConfig["shortTermAllowedSources"];
 };
 
 // 每批渲染的簇数：全部一次性渲染会在重数据账号上把 DOM 撑爆
 const CLUSTER_PAGE_SIZE = 30;
 
-export function MemoryTimeline({ events, userName }: Props) {
+export function MemoryTimeline({ events, userName, allowedSources }: Props) {
     const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
     const [visibleCount, setVisibleCount] = useState(CLUSTER_PAGE_SIZE);
 
     const clusters = useMemo(() => {
-        const parsed = events.map(e => parseEntry(e, userName)).filter((e): e is ParsedEntry => e !== null);
+        const parsed = events
+            .map(e => {
+                const entry: ParsedEntry | null = parseEntry(e, userName);
+                if (entry && allowedSources && !isTimelineEntryAllowed(e, allowedSources)) entry.excluded = true;
+                return entry;
+            })
+            .filter((e): e is ParsedEntry => e !== null);
         return clusterByTimeGap(parsed);
-    }, [events, userName]);
+    }, [events, userName, allowedSources]);
 
     // 切换角色/标签页时回到首屏
     useEffect(() => {
@@ -649,7 +664,10 @@ export function MemoryTimeline({ events, userName }: Props) {
                                         <span key={tag} className="ui-status-tag" data-variant={tagVariant(tag)}>{tag}</span>
                                     ))}
                                 </div>
-                                <span className="mem-tl-card-count">{cluster.entryCount} 条记录</span>
+                                <span className="mem-tl-card-count">
+                                    {cluster.entryCount} 条记录
+                                    {cluster.excludedCount > 0 ? `（${cluster.excludedCount} 条未参与记忆）` : ""}
+                                </span>
                             </div>
                             {expanded ? (
                                 <ClusterDetail cluster={cluster} />

@@ -277,9 +277,15 @@ function stripFences(text: string): string {
     .trim();
 }
 
+// 允许跨行续写的长文本字段（正文、评论内容、各类描述）。
+// 模型常把正文/评论写成多行，续行不以 [字段] 开头；过去这些续行会被直接丢掉，笔记正文因此被截成第一行，
+// 评论里却还提到被丢掉的内容。数值、昵称这类短字段不续写，免得把多余的说明粘进去。
+const MULTILINE_FIELD_PATTERN = /(?:内容|描述)$|^(?:正文|评论|回复|配图|视频画面)$/;
+
 function parseBlocks(text: string): ParsedBlock[] {
   const blocks: ParsedBlock[] = [];
   let current: ParsedBlock | null = null;
+  let lastField: string | null = null;
   const lines = stripFences(text).split(/\r?\n/);
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -292,6 +298,7 @@ function parseBlocks(text: string): ParsedBlock[] {
         number: Number(blockMatch[2] || "1"),
         fields: {},
       };
+      lastField = null;
       continue;
     }
     if (!current) {
@@ -299,7 +306,14 @@ function parseBlocks(text: string): ParsedBlock[] {
     }
     const fieldMatch = /^\[([^\]]+)]\s*(.*)$/.exec(line);
     if (fieldMatch) {
-      current.fields[fieldMatch[1].trim()] = fieldMatch[2].trim();
+      const key = fieldMatch[1].trim();
+      current.fields[key] = fieldMatch[2].trim();
+      lastField = key;
+      continue;
+    }
+    if (lastField && MULTILINE_FIELD_PATTERN.test(lastField)) {
+      const previous = current.fields[lastField];
+      current.fields[lastField] = previous ? `${previous}\n${line}` : line;
     }
   }
   if (current) blocks.push(current);
