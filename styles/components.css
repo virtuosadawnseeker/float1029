@@ -5388,6 +5388,19 @@
   opacity: 0.5;
 }
 
+/* 来源已在「记忆来源」中关闭的条目：仍显示，但标灰并注明未参与记忆（只影响显示，过滤逻辑不变） */
+.mem-tl-excluded {
+  opacity: 0.55;
+  filter: grayscale(0.85);
+}
+.mem-tl-excluded-note {
+  margin-bottom: 4px;
+  font-size: calc(9px*var(--app-text-scale,1));
+  letter-spacing: 0.5px;
+  color: var(--c-text-secondary, var(--c-text));
+  opacity: 0.8;
+}
+
 /* ── Chat Bubbles ── */
 
 .mem-tl-system {

@@ -895,17 +895,26 @@ export function filterTimelineByAllowedSources(
     allowed?: MemoryConfig["shortTermAllowedSources"],
 ): NativeTimelineEntry[] {
     const rules = allowed ?? loadMemoryConfig().shortTermAllowedSources ?? {};
-    return entries.filter(entry => {
-        const source = entry.sourceApp;
-        if (source === "chat") {
-            if (entry.sourceDetail === "group") return rules.group_chat !== false;
-            return rules.chat !== false;
-        }
-        if (source === "story") return rules.story !== false;
-        if (source === "vn") return rules.vn !== false;
-        if (source === "map") return rules.adventure !== false;
-        return (rules as Record<string, boolean | undefined>)[source] !== false;
-    });
+    return entries.filter(entry => isTimelineEntryAllowed(entry, rules));
+}
+
+/**
+ * 单条事件是否参与记忆（来源开关是否开着）。过滤逻辑与记忆页的「未参与记忆」标记共用这一处，
+ * 保证页面上标灰的条目就是真正不会被读取、不会进总结的条目。
+ */
+export function isTimelineEntryAllowed(
+    entry: Pick<NativeTimelineEntry, "sourceApp" | "sourceDetail">,
+    rules: NonNullable<MemoryConfig["shortTermAllowedSources"]>,
+): boolean {
+    const source = entry.sourceApp;
+    if (source === "chat") {
+        if (entry.sourceDetail === "group") return rules.group_chat !== false;
+        return rules.chat !== false;
+    }
+    if (source === "story") return rules.story !== false;
+    if (source === "vn") return rules.vn !== false;
+    if (source === "map") return rules.adventure !== false;
+    return (rules as Record<string, boolean | undefined>)[source] !== false;
 }
 
 /**
