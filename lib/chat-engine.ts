@@ -2131,6 +2131,9 @@ export async function generateOfflineChatCompletion(
         }
     }
 
+    // 线下每一轮同样计 2（与线上一致），否则只线下聊的角色永远触发不了自动总结
+    trackChatMemoryEvents(character);
+
     return {
         ...parsed,
         // 标签解析开启时补 thinking/thinkingTag（供离线记录展示）；关闭时保持 undefined，思维链走 reasoning（模型原生）
