@@ -1,4 +1,4 @@
-import { kvGet, kvSet, registerKvMigration } from "./kv-db";
+import { kvGet, kvRemove, kvSet, registerDynamicPrefix, registerKvMigration } from "./kv-db";
 import { resolveUserIdentity } from "./settings-storage";
 import {
   DEFAULT_XIAOHONGSHU_PROFILE,
@@ -20,6 +20,96 @@ const LEGACY_DEFAULT_NICKNAME = "我";
 const LEGACY_DEFAULT_GENDER = "未设置";
 
 registerKvMigration(XHS_STATE_KEY);
+
+// ── 多账号：账号 "default" 沿用旧 key（老数据原地不动），其它账号各用 `${XHS_STATE_KEY}__${id}` ──
+const XHS_ACCOUNTS_KEY = "ai_phone_xiaohongshu_accounts_v1";
+const XHS_EXTRA_ACCOUNT_PREFIX = `${XHS_STATE_KEY}__`;
+const DEFAULT_ACCOUNT_ID = "default";
+
+registerKvMigration(XHS_ACCOUNTS_KEY);
+registerDynamicPrefix(XHS_EXTRA_ACCOUNT_PREFIX);
+
+export interface XiaohongshuAccountSlot {
+  id: string;
+  name: string;
+}
+
+export interface XiaohongshuAccountRegistry {
+  activeId: string;
+  accounts: XiaohongshuAccountSlot[];
+}
+
+function defaultAccountRegistry(): XiaohongshuAccountRegistry {
+  return { activeId: DEFAULT_ACCOUNT_ID, accounts: [{ id: DEFAULT_ACCOUNT_ID, name: "账号 1" }] };
+}
+
+export function loadXiaohongshuAccountRegistry(): XiaohongshuAccountRegistry {
+  try {
+    const raw = kvGet(XHS_ACCOUNTS_KEY);
+    if (!raw) return defaultAccountRegistry();
+    const parsed = JSON.parse(raw) as Partial<XiaohongshuAccountRegistry>;
+    const accounts = Array.isArray(parsed.accounts)
+      ? parsed.accounts
+        .map(item => ({ id: cleanText(item?.id, 80), name: cleanText(item?.name, 24) }))
+        .filter(item => item.id)
+      : [];
+    if (!accounts.some(item => item.id === DEFAULT_ACCOUNT_ID)) accounts.unshift({ id: DEFAULT_ACCOUNT_ID, name: "账号 1" });
+    const activeId = accounts.some(item => item.id === parsed.activeId) ? String(parsed.activeId) : DEFAULT_ACCOUNT_ID;
+    return { activeId, accounts: accounts.map((item, index) => ({ ...item, name: item.name || `账号 ${index + 1}` })) };
+  } catch {
+    return defaultAccountRegistry();
+  }
+}
+
+function saveXiaohongshuAccountRegistry(registry: XiaohongshuAccountRegistry): XiaohongshuAccountRegistry {
+  kvSet(XHS_ACCOUNTS_KEY, JSON.stringify(registry));
+  return registry;
+}
+
+function stateKeyForAccount(accountId: string): string {
+  return accountId === DEFAULT_ACCOUNT_ID ? XHS_STATE_KEY : `${XHS_EXTRA_ACCOUNT_PREFIX}${accountId}`;
+}
+
+function activeStateKey(): string {
+  return stateKeyForAccount(loadXiaohongshuAccountRegistry().activeId);
+}
+
+export function switchXiaohongshuAccount(accountId: string): XiaohongshuAccountRegistry {
+  const registry = loadXiaohongshuAccountRegistry();
+  if (!registry.accounts.some(item => item.id === accountId)) return registry;
+  return saveXiaohongshuAccountRegistry({ ...registry, activeId: accountId });
+}
+
+export function createXiaohongshuAccount(name: string): XiaohongshuAccountRegistry {
+  const registry = loadXiaohongshuAccountRegistry();
+  const id = makeId("acct");
+  const label = cleanText(name, 24) || `账号 ${registry.accounts.length + 1}`;
+  // 新账号是一份全新的空存档（参与角色为空），创建后立即切换过去
+  kvSet(stateKeyForAccount(id), JSON.stringify(createDefaultXiaohongshuState()));
+  return saveXiaohongshuAccountRegistry({ activeId: id, accounts: [...registry.accounts, { id, name: label }] });
+}
+
+export function renameXiaohongshuAccount(accountId: string, name: string): XiaohongshuAccountRegistry {
+  const registry = loadXiaohongshuAccountRegistry();
+  const label = cleanText(name, 24);
+  if (!label) return registry;
+  return saveXiaohongshuAccountRegistry({
+    ...registry,
+    accounts: registry.accounts.map(item => item.id === accountId ? { ...item, name: label } : item),
+  });
+}
+
+/** 删除一个账号及其全部存档；默认账号和仅剩的最后一个账号不可删。 */
+export function deleteXiaohongshuAccount(accountId: string): XiaohongshuAccountRegistry {
+  const registry = loadXiaohongshuAccountRegistry();
+  if (accountId === DEFAULT_ACCOUNT_ID || !registry.accounts.some(item => item.id === accountId)) return registry;
+  kvRemove(stateKeyForAccount(accountId));
+  const accounts = registry.accounts.filter(item => item.id !== accountId);
+  return saveXiaohongshuAccountRegistry({
+    activeId: registry.activeId === accountId ? DEFAULT_ACCOUNT_ID : registry.activeId,
+    accounts,
+  });
+}
 
 function makeId(prefix: string): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return `${prefix}_${crypto.randomUUID()}`;
@@ -341,22 +431,16 @@ export function createDefaultXiaohongshuState(): XiaohongshuState {
 export function loadXiaohongshuState(): XiaohongshuState {
   if (typeof window === "undefined") return createDefaultXiaohongshuState();
   try {
-    const raw = kvGet(XHS_STATE_KEY);
+    const raw = kvGet(activeStateKey());
     if (!raw) return createDefaultXiaohongshuState();
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const notes = Array.isArray(parsed.notes)
       ? parsed.notes.map(normalizeXiaohongshuNote).filter((note): note is XiaohongshuNote => Boolean(note))
       : [];
-    const noteSourceById = new Map(notes.map(note => [note.id, note.source]));
     const notifications = Array.isArray(parsed.notifications)
       ? parsed.notifications
         .map(normalizeNotification)
         .filter((notice): notice is XiaohongshuNotification => Boolean(notice))
-        .filter((notice) => {
-          if (!notice.noteId) return true;
-          const source = noteSourceById.get(notice.noteId);
-          return !source || source === "user";
-        })
       : [];
     const rawInteractions = parsed.userInteractions ?? parsed.user_interactions;
     const userInteractions = normalizeXiaohongshuUserInteractions(rawInteractions);
@@ -382,7 +466,7 @@ export function loadXiaohongshuState(): XiaohongshuState {
 
 export function saveXiaohongshuState(state: XiaohongshuState): XiaohongshuState {
   const next = { ...state, updatedAt: new Date().toISOString() };
-  kvSet(XHS_STATE_KEY, JSON.stringify(next));
+  kvSet(activeStateKey(), JSON.stringify(next));
   return next;
 }
 

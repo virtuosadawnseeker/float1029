@@ -56,7 +56,12 @@ import {
 } from "@/lib/xiaohongshu-engine";
 import {
   createUserXiaohongshuNote,
+  createXiaohongshuAccount,
+  deleteXiaohongshuAccount,
+  loadXiaohongshuAccountRegistry,
   loadXiaohongshuState,
+  renameXiaohongshuAccount,
+  switchXiaohongshuAccount,
   makeXiaohongshuNpcId,
   makeXiaohongshuComment,
   makeXiaohongshuNotification,
@@ -768,6 +773,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   const [pendingFeedAction, setPendingFeedAction] = useState<PendingFeedAction | null>(null);
   const [profileDraft, setProfileDraft] = useState(state.profile);
   const [settingsDraft, setSettingsDraft] = useState(state.settings);
+  const [accountRegistry, setAccountRegistry] = useState(() => loadXiaohongshuAccountRegistry());
   const [expandedPrompts, setExpandedPrompts] = useState<Set<string>>(new Set());
   const [draft, setDraft] = useState<XiaohongshuUserPostInput>({
     title: "",
@@ -1518,6 +1524,51 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
       },
     });
     setSettingsOpen(false);
+  }
+
+  function reloadForAccount(registry: ReturnType<typeof loadXiaohongshuAccountRegistry>) {
+    const next = loadXiaohongshuState();
+    setAccountRegistry(registry);
+    setState(next);
+    setProfileDraft(next.profile);
+    setSettingsDraft(next.settings);
+    setSelectedNoteId(null);
+    setMessagePanel(null);
+    setSelectedDmThreadId(null);
+    setReplyTarget(null);
+    setCommentDraft("");
+    setSelectedTab("home");
+    setSettingsOpen(false);
+    clearErrorState();
+  }
+
+  function handleSwitchAccount(accountId: string) {
+    if (busy !== "idle" || accountId === accountRegistry.activeId) return;
+    reloadForAccount(switchXiaohongshuAccount(accountId));
+    onNotice?.("已切换小红书账号");
+  }
+
+  function handleCreateAccount() {
+    if (busy !== "idle") return;
+    const name = window.prompt("新账号的名字（比如：兽人世界）", "");
+    if (name === null) return;
+    reloadForAccount(createXiaohongshuAccount(name));
+    onNotice?.("已创建新账号。参与角色默认为空，请到设置里勾选");
+  }
+
+  function handleRenameAccount() {
+    const current = accountRegistry.accounts.find(item => item.id === accountRegistry.activeId);
+    const name = window.prompt("账号名称", current?.name ?? "");
+    if (name === null) return;
+    setAccountRegistry(renameXiaohongshuAccount(accountRegistry.activeId, name));
+  }
+
+  function handleDeleteAccount() {
+    if (busy !== "idle" || accountRegistry.activeId === "default") return;
+    const current = accountRegistry.accounts.find(item => item.id === accountRegistry.activeId);
+    if (!window.confirm(`确定删除「${current?.name ?? "该账号"}」吗？它的笔记、关注和通知会全部清除，且无法恢复。`)) return;
+    reloadForAccount(deleteXiaohongshuAccount(accountRegistry.activeId));
+    onNotice?.("账号已删除");
   }
 
   function handleResetSettingsDraft() {
@@ -3226,6 +3277,30 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
             </header>
 
             <div className="xhs-profile-edit-body">
+              <div className="xhs-profile-edit-field">
+                <span className="xhs-profile-edit-section-title">ACCOUNT <em>账号（各自独立的笔记、关注和参与角色）</em></span>
+                <div className="xhs-settings-edit-participants">
+                  {accountRegistry.accounts.map(account => (
+                    <button
+                      key={account.id}
+                      type="button"
+                      className={account.id === accountRegistry.activeId ? "is-selected" : ""}
+                      disabled={busy !== "idle"}
+                      onClick={() => handleSwitchAccount(account.id)}
+                    >
+                      {account.name}
+                    </button>
+                  ))}
+                  <button type="button" disabled={busy !== "idle"} onClick={handleCreateAccount}>＋ 新账号</button>
+                </div>
+                <div className="xhs-settings-edit-participants">
+                  <button type="button" onClick={handleRenameAccount}>重命名当前账号</button>
+                  {accountRegistry.activeId !== "default" ? (
+                    <button type="button" disabled={busy !== "idle"} onClick={handleDeleteAccount}>删除当前账号</button>
+                  ) : null}
+                </div>
+              </div>
+
               <div className="xhs-profile-edit-field">
                 <span className="xhs-profile-edit-section-title">INTERACTION <em>角色互动概率</em></span>
                 <input
