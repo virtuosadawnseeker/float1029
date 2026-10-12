@@ -54,6 +54,7 @@ type OwnerOption = {
   ownerId: string;
   name: string;
   avatar?: string | null;
+  supporting?: boolean;
 };
 
 const CALENDAR_THEMES: Array<{ id: (typeof CALENDAR_THEME_IDS)[number]; name: string }> = [
@@ -82,6 +83,7 @@ function buildOwnerOptions(): OwnerOption[] {
       ownerId: char.id,
       name: char.name,
       avatar: char.avatar,
+      supporting: Boolean(char.tags?.includes("配角")),
     });
   }
   return options;
@@ -134,6 +136,7 @@ export function PhoneCalendarApp({
   const todayIso = formatIsoDate(new Date());
   const [owners, setOwners] = useState<OwnerOption[]>(() => buildOwnerOptions());
   const [selectedKey, setSelectedKey] = useState<string>(() => owners[0]?.key ?? "user:me");
+  const [showSupportingOwners, setShowSupportingOwners] = useState(false);
   const [view, setView] = useState<"month" | "detail">("month");
   const [selectedDate, setSelectedDate] = useState<string>(todayIso);
   const [detailKey, setDetailKey] = useState(0);
@@ -496,7 +499,7 @@ export function PhoneCalendarApp({
 
   const ownerStrip = (
     <section className="calendar-owner-strip hide-scrollbar">
-      {owners.map(owner => (
+      {owners.filter(owner => !owner.supporting || showSupportingOwners || owner.key === selectedKey).map(owner => (
         <button
           key={owner.key}
           type="button"
@@ -512,6 +515,15 @@ export function PhoneCalendarApp({
           <span>{owner.name}</span>
         </button>
       ))}
+      {owners.some(owner => owner.supporting) ? (
+        <button
+          type="button"
+          className="calendar-owner-chip"
+          onClick={() => setShowSupportingOwners(v => !v)}
+        >
+          <span>配角 {owners.filter(owner => owner.supporting).length} · {showSupportingOwners ? "折叠" : "展开"}</span>
+        </button>
+      ) : null}
     </section>
   );
 

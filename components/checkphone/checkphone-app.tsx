@@ -286,6 +286,7 @@ function getAppIconClass(appId: CheckPhoneAppId, isDock = false) {
 export function CheckPhoneApp({ onClose }: CheckPhoneAppProps) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [activeCharId, setActiveCharId] = useState<string | null>(null);
+  const [showSupportingChars, setShowSupportingChars] = useState(false);
   const [states, setStates] = useState<Record<string, ManifestState>>({});
   const [manifestsCacheMap, setManifestsCacheMap] = useState<Record<string, CheckPhoneManifest>>({});
   
@@ -1054,7 +1055,7 @@ export function CheckPhoneApp({ onClose }: CheckPhoneAppProps) {
             {characters.length === 0 && (
                <div className="cp-roster-empty">No target records found.</div>
             )}
-            {characters.map((character) => {
+            {characters.filter(character => !character.tags?.includes("配角") || showSupportingChars).map((character) => {
               const charManifest = manifestsCacheMap[character.id] || null;
               const isDecrypted = !!charManifest;
               const previewApps = charManifest ? sanitizeCheckPhoneAppIds(charManifest.allAppIds).slice(0, 5) : [];
@@ -1117,6 +1118,18 @@ export function CheckPhoneApp({ onClose }: CheckPhoneAppProps) {
                 </div>
               );
             })}
+            {characters.some(character => character.tags?.includes("配角")) && (
+              <button
+                type="button"
+                className="cp-roster-card"
+                style={{ justifyContent: "center", alignItems: "center", cursor: "pointer" }}
+                onClick={() => setShowSupportingChars(v => !v)}
+              >
+                <div className="cp-name-badge">
+                  配角 {characters.filter(character => character.tags?.includes("配角")).length} · {showSupportingChars ? "折叠" : "展开"}
+                </div>
+              </button>
+            )}
           </div>
         </div>
 

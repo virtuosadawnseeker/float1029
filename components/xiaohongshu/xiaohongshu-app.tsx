@@ -769,6 +769,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   const videoCaptionMeasureRef = useRef<HTMLDivElement | null>(null);
   const [messagePanel, setMessagePanel] = useState<XiaohongshuMessagePanel | null>(null);
   const [selectedDmThreadId, setSelectedDmThreadId] = useState<string | null>(null);
+  const [showSupportingParticipants, setShowSupportingParticipants] = useState(false);
   const [dmPickerOpen, setDmPickerOpen] = useState(false);
   const [draftDmThread, setDraftDmThread] = useState<{ id: string; actorName: string } | null>(null);
   const [dmDraft, setDmDraft] = useState("");
@@ -3469,7 +3470,12 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                   {characters.length === 0 ? (
                     <span className="xhs-settings-edit-participants-empty">暂无角色</span>
                   ) : (
-                    characters.map((character) => {
+                    <>
+                    {characters.filter(character =>
+                      !character.tags?.includes("配角")
+                      || showSupportingParticipants
+                      || settingsDraft.participantCharacterIds.includes(character.id)
+                    ).map((character) => {
                       const selected = settingsDraft.participantCharacterIds.includes(character.id);
                       return (
                         <button
@@ -3487,7 +3493,16 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                           <em>{character.name}</em>
                         </button>
                       );
-                    })
+                    })}
+                    {characters.some(character => character.tags?.includes("配角")) ? (
+                      <button type="button" onClick={() => setShowSupportingParticipants(v => !v)}>
+                        <span>配</span>
+                        <em>
+                          配角 {characters.filter(character => character.tags?.includes("配角")).length} · {showSupportingParticipants ? "折叠" : "展开"}
+                        </em>
+                      </button>
+                    ) : null}
+                    </>
                   )}
                 </div>
               </div>
