@@ -1042,11 +1042,43 @@ export function formatXiaohongshuNoteCommentContext(note: XiaohongshuNote): stri
   ].filter(Boolean).join("\n");
 }
 
+/** 收集用户与某角色在小红书评论区的往来，供私信回复时参考（评论区与私信同属一个人的记忆）。 */
+export function collectXiaohongshuCommentHistoryWithCharacter(
+  notes: XiaohongshuNote[],
+  characterId: string,
+  characterNames: string[],
+  limit = 12,
+): string {
+  const names = new Set(characterNames.filter(Boolean));
+  const isChar = (c: XiaohongshuComment) =>
+    (c.authorType === "character" && c.authorId === characterId) || (c.authorType === "character" && names.has(c.authorName));
+  const rows: { at: string; line: string }[] = [];
+  for (const note of notes) {
+    const ownedByChar = note.source === "character" && (note.authorId === characterId || names.has(note.authorName));
+    for (const c of note.comments) {
+      const toChar = !!c.replyTo && names.has(c.replyTo);
+      let line = "";
+      if (c.authorType === "user" && (ownedByChar || toChar)) {
+        line = `用户评论${c.replyTo ? `（回复 ${c.replyTo}）` : ""}：${c.text}`;
+      } else if (isChar(c) && (c.replyTo || note.source === "user")) {
+        line = `你评论${c.replyTo ? `（回复 ${c.replyTo}）` : ""}：${c.text}`;
+      }
+      if (line) rows.push({ at: c.createdAt, line: `[笔记《${note.title || "无标题"}》] ${line}` });
+    }
+  }
+  return rows
+    .sort((a, b) => a.at.localeCompare(b.at))
+    .slice(-limit)
+    .map((r) => r.line)
+    .join("\n");
+}
+
 export function formatXiaohongshuDmContext(input: {
   threadName: string;
   userName: string;
   messages: XiaohongshuNotification[];
   latestUserText: string;
+  commentHistory?: string;
 }): string {
   const history = input.messages
     .slice(-20)
@@ -1063,6 +1095,9 @@ export function formatXiaohongshuDmContext(input: {
     "",
     "#历史私信",
     history.length ? history.join("\n") : "暂无历史私信",
+    ...(input.commentHistory
+      ? ["", "#你们在评论区的往来（同一个人，发生在私信之前，请自然承接，不要当成第一次交流）", input.commentHistory]
+      : []),
   ].join("\n");
 }
 
@@ -1353,6 +1388,7 @@ export async function generateXiaohongshuCharacterDmReply(input: {
   userName: string;
   messages: XiaohongshuNotification[];
   latestUserText: string;
+  commentHistory?: string;
   settings?: XiaohongshuSettings;
 }): Promise<ParsedXiaohongshuNpcDmReply | null> {
   const resolved = await resolveCharacterAssemblerInput(input.characterId, ["xiaohongshu", "dm"], {}, input.settings);

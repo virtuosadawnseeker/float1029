@@ -46,6 +46,7 @@ import {
   generateXiaohongshuCharacterActivity,
   generateXiaohongshuCharacterMentionReply,
   generateXiaohongshuCharacterDmReply,
+  collectXiaohongshuCommentHistoryWithCharacter,
   generateXiaohongshuCharacterReplyToUserComment,
   generateXiaohongshuCharacterReactionToUserPost,
   generateXiaohongshuNpcFeed,
@@ -1177,6 +1178,11 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
             userName,
             messages: baseMessages,
             latestUserText,
+            commentHistory: collectXiaohongshuCommentHistoryWithCharacter(
+              current.notes,
+              dmCharacter.id,
+              [resolveCharacterXiaohongshuDisplayName(dmCharacter), dmCharacter.name],
+            ),
             settings: current.settings,
           })
         : null;
