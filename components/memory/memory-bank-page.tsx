@@ -20,6 +20,7 @@ import {
     getMemoryCountByType,
     getLastSummarizedTimestamp,
     getLastCoreSummarizedTimestamp,
+    getEventCounter,
 } from "@/lib/memory-storage";
 import { hydrateChatStorage } from "@/lib/chat-storage";
 import { loadNativeTimeline, type NativeTimelineEntry } from "@/lib/short-term-assembler";
@@ -206,6 +207,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     const [confirmDeleteEntryId, setConfirmDeleteEntryId] = useState<string | null>(null);
     const [confirmClearAll, setConfirmClearAll] = useState(false);
     const [pickedCharId, setPickedCharId] = useState<string | null>(null);
+    const [showSupporting, setShowSupporting] = useState(false);
     const [entryMenuId, setEntryMenuId] = useState<string | null>(null);
     const [memoryEditor, setMemoryEditor] = useState<MemoryEditorState | null>(null);
     const [savingMemory, setSavingMemory] = useState(false);
@@ -1180,6 +1182,13 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
 
                 {/* Summarization interval */}
                 <p className="menu-group-desc mx-2">自动总结间隔</p>
+                {selectedCharId && (
+                    <p className="menu-group-desc mx-2" style={{ fontWeight: 600 }}>
+                        当前计数 {getEventCounter(selectedCharId)} / {config.summarizationEventInterval ?? 50}
+                        （{selectedChar?.name ?? "该角色"}离下次自动总结还差 {Math.max(0, (config.summarizationEventInterval ?? 50) - getEventCounter(selectedCharId))}；
+                        私聊每次回复计 2，手动总结后会清零）
+                    </p>
+                )}
                 <div className="menu-group">
                     <MemorySettingsSliderItem
                         icon={Clock}
@@ -1314,16 +1323,33 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                     </p>
 
                     <div className="mem-picker-chips">
-                        {characters.map(({ character }) => (
-                            <button
-                                key={character.id}
-                                className="ui-chip"
-                                {...(pickedCharId === character.id ? { "data-selected": "" } : {})}
-                                onClick={() => setPickedCharId(pickedCharId === character.id ? null : character.id)}
-                            >
-                                {character.name}
-                            </button>
-                        ))}
+                        {(() => {
+                            // 配角（NPC 生成/名片建档、带「配角」标签）默认折叠，避免把新建的正式角色挤到最后
+                            const isSupporting = (c: { character: { tags?: string[] } }) => Boolean(c.character.tags?.includes("配角"));
+                            const mainChars = characters.filter(c => !isSupporting(c));
+                            const supportingChars = characters.filter(isSupporting);
+                            const renderChip = ({ character }: { character: { id: string; name: string } }) => (
+                                <button
+                                    key={character.id}
+                                    className="ui-chip"
+                                    {...(pickedCharId === character.id ? { "data-selected": "" } : {})}
+                                    onClick={() => setPickedCharId(pickedCharId === character.id ? null : character.id)}
+                                >
+                                    {character.name}
+                                </button>
+                            );
+                            return (
+                                <>
+                                    {mainChars.map(renderChip)}
+                                    {supportingChars.length > 0 ? (
+                                        <button className="ui-chip" onClick={() => setShowSupporting(v => !v)}>
+                                            配角 {supportingChars.length} · {showSupporting ? "点此折叠" : "点此展开"}
+                                        </button>
+                                    ) : null}
+                                    {showSupporting ? supportingChars.map(renderChip) : null}
+                                </>
+                            );
+                        })()}
                     </div>
 
                     <div className="mem-picker-tear">

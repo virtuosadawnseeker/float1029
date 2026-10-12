@@ -793,6 +793,7 @@ function buildXiaohongshuUserIdentityHint(input: {
         `用户真实身份：${userName}`,
         `用户小红书昵称/马甲：${xiaohongshuNameText}`,
         "当作者或评论者显示为上述昵称时，按用户本人处理；回复时保持自然，不要生硬暴露系统说明。",
+        "如果上下文或历史对话里，你此前一直把这个账号当作陌生网友在回应，而现在才得知对方就是用户本人：请先自然地演出这个“认出来”的瞬间（意外、愣住、回想起刚才说过的话、语气随之改变等，符合你的人设和与用户的关系），这个转折只出现一次，之后再恢复你们平时熟悉的相处方式。",
       ]
     : [
         "你当前没有关注该小红书账号。",
@@ -1041,11 +1042,43 @@ export function formatXiaohongshuNoteCommentContext(note: XiaohongshuNote): stri
   ].filter(Boolean).join("\n");
 }
 
+/** 收集用户与某角色在小红书评论区的往来，供私信回复时参考（评论区与私信同属一个人的记忆）。 */
+export function collectXiaohongshuCommentHistoryWithCharacter(
+  notes: XiaohongshuNote[],
+  characterId: string,
+  characterNames: string[],
+  limit = 12,
+): string {
+  const names = new Set(characterNames.filter(Boolean));
+  const isChar = (c: XiaohongshuComment) =>
+    (c.authorType === "character" && c.authorId === characterId) || (c.authorType === "character" && names.has(c.authorName));
+  const rows: { at: string; line: string }[] = [];
+  for (const note of notes) {
+    const ownedByChar = note.source === "character" && (note.authorId === characterId || names.has(note.authorName));
+    for (const c of note.comments) {
+      const toChar = !!c.replyTo && names.has(c.replyTo);
+      let line = "";
+      if (c.authorType === "user" && (ownedByChar || toChar)) {
+        line = `用户评论${c.replyTo ? `（回复 ${c.replyTo}）` : ""}：${c.text}`;
+      } else if (isChar(c) && (c.replyTo || note.source === "user")) {
+        line = `你评论${c.replyTo ? `（回复 ${c.replyTo}）` : ""}：${c.text}`;
+      }
+      if (line) rows.push({ at: c.createdAt, line: `[笔记《${note.title || "无标题"}》] ${line}` });
+    }
+  }
+  return rows
+    .sort((a, b) => a.at.localeCompare(b.at))
+    .slice(-limit)
+    .map((r) => r.line)
+    .join("\n");
+}
+
 export function formatXiaohongshuDmContext(input: {
   threadName: string;
   userName: string;
   messages: XiaohongshuNotification[];
   latestUserText: string;
+  commentHistory?: string;
 }): string {
   const history = input.messages
     .slice(-20)
@@ -1062,6 +1095,9 @@ export function formatXiaohongshuDmContext(input: {
     "",
     "#历史私信",
     history.length ? history.join("\n") : "暂无历史私信",
+    ...(input.commentHistory
+      ? ["", "#你们在评论区的往来（同一个人，发生在私信之前，请自然承接，不要当成第一次交流）", input.commentHistory]
+      : []),
   ].join("\n");
 }
 
@@ -1338,6 +1374,57 @@ export async function generateXiaohongshuNpcDmReply(input: {
     [],
     { characterName: "小红书NPC私信回复", userName: input.userName },
     { appId: "xiaohongshu", appTags: ["xiaohongshu", "npc_dm_reply"], skipOutputRegex: true },
+  );
+  return parseWithDebug(raw, parseXiaohongshuNpcDmReply, "无法解析小红书私信回复");
+}
+
+/**
+ * 用户给「参与角色」发私信时，由该角色自己的小红书绑定（API/预设/世界书/记忆）回复，
+ * 而不是路人提示词。拿不到该角色的 API 配置时返回 null，调用方回退到路人私信回复。
+ */
+export async function generateXiaohongshuCharacterDmReply(input: {
+  characterId: string;
+  threadName: string;
+  userName: string;
+  messages: XiaohongshuNotification[];
+  latestUserText: string;
+  commentHistory?: string;
+  settings?: XiaohongshuSettings;
+}): Promise<ParsedXiaohongshuNpcDmReply | null> {
+  const resolved = await resolveCharacterAssemblerInput(input.characterId, ["xiaohongshu", "dm"], {}, input.settings);
+  if (!resolved?.apiConfig) return null;
+  const messages = assemblePromptPayload(resolved.input);
+  const dmContext = prependXiaohongshuUserIdentityHint(
+    formatXiaohongshuDmContext(input),
+    buildXiaohongshuUserIdentityHint({ characterId: input.characterId, xiaohongshuNames: [input.userName] }),
+  );
+  messages.push({
+    role: "user",
+    content: [
+      "你现在在小红书的私信里收到了一个账号发来的消息，请以你自己的身份、人设、关系和当下状态回复。",
+      "对方的小红书昵称显示在下面的上下文里；是否认识对方，按上面的身份提示判断，不要凭空断定对方的现实身份。",
+      "可以连续回复 1 到 4 条消息，像真实私聊，可以短句、口语、带 emoji。不要替对方说话，不要输出系统解释或 Markdown。",
+      "",
+      "<xiaohongshu_dm_context>",
+      dmContext,
+      "</xiaohongshu_dm_context>",
+      "",
+      "输出格式：",
+      "#私信回复1",
+      "[正文]回复内容",
+      "",
+      "#私信回复2",
+      "[正文]第二条回复内容（可省略）",
+    ].join("\n"),
+    _debugMeta: { marker: "xiaohongshu_character_dm_reply" },
+  } as LLMMessage);
+  const raw = await sendLLMRequest(
+    resolved.apiConfig,
+    resolved.preset,
+    messages,
+    resolved.regexes,
+    { characterName: `小红书私信:${resolved.character.name}`, userName: resolved.input.userIdentity?.name },
+    { appId: "xiaohongshu", appTags: ["xiaohongshu", "dm"] },
   );
   return parseWithDebug(raw, parseXiaohongshuNpcDmReply, "无法解析小红书私信回复");
 }

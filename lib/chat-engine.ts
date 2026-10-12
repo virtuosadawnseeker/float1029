@@ -91,6 +91,7 @@ import {
 import { parseOfflineResponse, extractThinkingTag, type ParsedOfflineResponse } from "./chat-offline-storage";
 import { throwIfAborted } from "./abort-utils";
 import { armShortcutContinuation, SHORTCUT_VISION_OFF_NOTE, type ShortcutContinuationHandle, type ShortcutContinuationStyle } from "./shortcut-continuation-client";
+import { appendOfflineLengthHint } from "./offline-prompt-builder";
 
 
 
@@ -1993,6 +1994,7 @@ export async function buildChatPromptMessages(
             content: "本次自定义 APP AI 任务只输出严格 JSON。不要输出 Markdown 代码块、解释文字或聊天富媒体指令。",
         });
     }
+    appendOfflineLengthHint(llmMessages, effectiveAppTags);
     appendEmptyGenerateGuardMessage(llmMessages, config, historyForPrompt);
 
     return { llmMessages, character, config, preset, regexes, userIdentity, toolsEnabled };
@@ -2129,6 +2131,9 @@ export async function generateOfflineChatCompletion(
         }
     }
 
+    // 线下每一轮同样计 2（与线上一致），否则只线下聊的角色永远触发不了自动总结
+    trackChatMemoryEvents(character);
+
     return {
         ...parsed,
         // 标签解析开启时补 thinking/thinkingTag（供离线记录展示）；关闭时保持 undefined，思维链走 reasoning（模型原生）
@@ -2140,6 +2145,22 @@ export async function generateOfflineChatCompletion(
         presetName: preset?.name || "默认预设",
         reasoning: reasoning || undefined,
     };
+}
+
+/**
+ * 记忆：一次私聊回复计 2 条事件（用户消息 + AI 回复），并检查是否该自动总结（不阻塞回复）。
+ * 普通分支和原生工具调用分支都要调用，否则走工具调用的角色计数永远是 0。
+ */
+function trackChatMemoryEvents(character: Pick<Character, "id" | "name">): void {
+    (async () => {
+        try {
+            incrementEventCounter(character.id); // user message
+            incrementEventCounter(character.id); // AI reply
+            await maybeRunSummarization(character.id, character.name);
+        } catch (err) {
+            console.warn("[ChatEngine] Memory counter/summarization failed:", err);
+        }
+    })();
 }
 
 async function generateNativeChatCompletion(
@@ -2469,6 +2490,8 @@ async function generateNativeChatCompletion(
             break;
         }
     }
+
+    trackChatMemoryEvents(character);
 
     return { parts };
 }
@@ -2912,16 +2935,7 @@ async function generateChatCompletionCore(
         }
     }
 
-    // Memory: increment event counter + check if summarization needed (non-blocking)
-    (async () => {
-        try {
-            incrementEventCounter(character.id); // user message
-            incrementEventCounter(character.id); // AI reply
-            await maybeRunSummarization(character.id, character.name);
-        } catch (err) {
-            console.warn("[ChatEngine] Memory counter/summarization failed:", err);
-        }
-    })();
+    trackChatMemoryEvents(character);
 
     return { parts };
 }

@@ -84,6 +84,7 @@ import type { DebugPromptSnapshot } from "./debug-store";
 import { throwIfAborted } from "./abort-utils";
 import { buildCharacterTimeContext, buildGroupTimeContext } from "./character-time";
 import { getPromptTimestampOptionsForTimeContext } from "./prompt-time";
+import { appendOfflineLengthHint } from "./offline-prompt-builder";
 
 function stripGroupFinancialActionsForMetadataRepair(text: string): string {
     return stripStateAndInnerForPrompt(text)
@@ -517,6 +518,7 @@ async function buildGroupChatPromptMessages(
             content: "本次自定义 APP AI 任务只输出严格 JSON。不要输出 Markdown 代码块、解释文字或聊天富媒体指令。",
         });
     }
+    appendOfflineLengthHint(llmMessages, activeAppTags);
     appendEmptyGenerateGuardMessage(llmMessages, config, history);
 
     return { llmMessages, config, preset, regexes, nameToId, memberNames, enabledTools, userName, appTags: activeAppTags };

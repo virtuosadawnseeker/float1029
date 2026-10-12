@@ -45,6 +45,8 @@ import {
   applyNpcReaction,
   generateXiaohongshuCharacterActivity,
   generateXiaohongshuCharacterMentionReply,
+  generateXiaohongshuCharacterDmReply,
+  collectXiaohongshuCommentHistoryWithCharacter,
   generateXiaohongshuCharacterReplyToUserComment,
   generateXiaohongshuCharacterReactionToUserPost,
   generateXiaohongshuNpcFeed,
@@ -55,6 +57,7 @@ import {
   XiaohongshuGenerationError,
 } from "@/lib/xiaohongshu-engine";
 import {
+  createDefaultXiaohongshuState,
   createUserXiaohongshuNote,
   createXiaohongshuAccount,
   deleteXiaohongshuAccount,
@@ -68,6 +71,7 @@ import {
   saveXiaohongshuState,
 } from "@/lib/xiaohongshu-storage";
 import {
+  deleteXiaohongshuFollowUserEvents,
   deleteXiaohongshuProjectionEventForComment,
   deleteXiaohongshuProjectionEventsForNote,
   recordXiaohongshuCommentEvent,
@@ -765,6 +769,9 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   const videoCaptionMeasureRef = useRef<HTMLDivElement | null>(null);
   const [messagePanel, setMessagePanel] = useState<XiaohongshuMessagePanel | null>(null);
   const [selectedDmThreadId, setSelectedDmThreadId] = useState<string | null>(null);
+  const [showSupportingParticipants, setShowSupportingParticipants] = useState(false);
+  const [dmPickerOpen, setDmPickerOpen] = useState(false);
+  const [draftDmThread, setDraftDmThread] = useState<{ id: string; actorName: string } | null>(null);
   const [dmDraft, setDmDraft] = useState("");
   const [dmEmojiOpen, setDmEmojiOpen] = useState(false);
   const [commentEmojiOpen, setCommentEmojiOpen] = useState(false);
@@ -822,7 +829,18 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
       })
       .sort((a, b) => Date.parse(b.latest.createdAt) - Date.parse(a.latest.createdAt));
   }, [dmNotifications]);
-  const selectedDmThread = selectedDmThreadId ? dmThreads.find(thread => thread.id === selectedDmThreadId) ?? null : null;
+  const selectedDmThread = selectedDmThreadId
+    ? dmThreads.find(thread => thread.id === selectedDmThreadId)
+      ?? (draftDmThread && draftDmThread.id === selectedDmThreadId
+        ? {
+            id: draftDmThread.id,
+            actorName: draftDmThread.actorName,
+            notifications: [],
+            latest: makeXiaohongshuNotification({ type: "dm", actorName: draftDmThread.actorName, text: "", unread: false }),
+            unreadCount: 0,
+          }
+        : null)
+    : null;
   const selectedMessageNotifications = messagePanel
     ? state.notifications.filter(item => messagePanel === "engagement" ? item.type === "like" || item.type === "save" : item.type === messagePanel)
     : [];
@@ -1056,6 +1074,23 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
     });
   }
 
+  function handleStartDmWithAuthor(note: XiaohongshuNote) {
+    if (note.source === "user") return;
+    handleStartDmWithName(note.authorName);
+  }
+
+  function handleStartDmWithName(rawName: string) {
+    const name = rawName.trim();
+    if (!name) return;
+    const threadId = `dm:${name}`;
+    setDmPickerOpen(false);
+    setDraftDmThread({ id: threadId, actorName: name });
+    setSelectedNoteId(null);
+    setMessagePanel(null);
+    setSelectedTab("messages");
+    setSelectedDmThreadId(threadId);
+  }
+
   function handleOpenDmThread(thread: XiaohongshuDmThread) {
     setMessagePanel(null);
     setSelectedDmThreadId(thread.id);
@@ -1132,7 +1167,27 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
       return;
     }
     try {
-      const reply = await generateXiaohongshuNpcDmReply({
+      // 对话对象是「参与角色」时，由该角色本人回复；否则走路人私信回复
+      const dmCharacter = characters.find(item =>
+        current.settings.participantCharacterIds.includes(item.id)
+        && (resolveCharacterXiaohongshuDisplayName(item) === threadName || item.name === threadName)
+      );
+      const characterReply = dmCharacter
+        ? await generateXiaohongshuCharacterDmReply({
+            characterId: dmCharacter.id,
+            threadName,
+            userName,
+            messages: baseMessages,
+            latestUserText,
+            commentHistory: collectXiaohongshuCommentHistoryWithCharacter(
+              current.notes,
+              dmCharacter.id,
+              [resolveCharacterXiaohongshuDisplayName(dmCharacter), dmCharacter.name],
+            ),
+            settings: current.settings,
+          })
+        : null;
+      const reply = characterReply ?? await generateXiaohongshuNpcDmReply({
         threadName,
         userName,
         messages: baseMessages,
@@ -1526,7 +1581,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
     setSettingsOpen(false);
   }
 
-  function reloadForAccount(registry: ReturnType<typeof loadXiaohongshuAccountRegistry>) {
+  function reloadForAccount(registry: ReturnType<typeof loadXiaohongshuAccountRegistry>, keepSettingsOpen = false) {
     const next = loadXiaohongshuState();
     setAccountRegistry(registry);
     setState(next);
@@ -1538,13 +1593,13 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
     setReplyTarget(null);
     setCommentDraft("");
     setSelectedTab("home");
-    setSettingsOpen(false);
+    setSettingsOpen(keepSettingsOpen);
     clearErrorState();
   }
 
   function handleSwitchAccount(accountId: string) {
     if (busy !== "idle" || accountId === accountRegistry.activeId) return;
-    reloadForAccount(switchXiaohongshuAccount(accountId));
+    reloadForAccount(switchXiaohongshuAccount(accountId), true);
     onNotice?.("已切换小红书账号");
   }
 
@@ -1552,7 +1607,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
     if (busy !== "idle") return;
     const name = window.prompt("新账号的名字（比如：兽人世界）", "");
     if (name === null) return;
-    reloadForAccount(createXiaohongshuAccount(name));
+    reloadForAccount(createXiaohongshuAccount(name), true);
     onNotice?.("已创建新账号。参与角色默认为空，请到设置里勾选");
   }
 
@@ -1564,11 +1619,35 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   }
 
   function handleDeleteAccount() {
-    if (busy !== "idle" || accountRegistry.activeId === "default") return;
+    if (busy !== "idle" || accountRegistry.accounts.length <= 1) return;
     const current = accountRegistry.accounts.find(item => item.id === accountRegistry.activeId);
-    if (!window.confirm(`确定删除「${current?.name ?? "该账号"}」吗？它的笔记、关注和通知会全部清除，且无法恢复。`)) return;
+    if (!window.confirm(`确定删除「${current?.name ?? "该账号"}」吗？它的笔记、关注和通知会全部清除，角色记忆里相关的小红书事件（包括“关注了你”）也会一并删除，且无法恢复。`)) return;
+    // 与重置一致：同时清掉角色记忆里与该账号笔记相关的小红书事件和“关注了你”
+    state.notes.forEach(note => deleteXiaohongshuProjectionEventsForNote(note.id));
+    deleteXiaohongshuFollowUserEvents();
     reloadForAccount(deleteXiaohongshuAccount(accountRegistry.activeId));
     onNotice?.("账号已删除");
+  }
+
+  function handleResetAccount() {
+    if (busy !== "idle") return;
+    const current = accountRegistry.accounts.find(item => item.id === accountRegistry.activeId);
+    if (!window.confirm(`确定重置「${current?.name ?? "当前账号"}」吗？笔记、信息流、关注、粉丝、通知和互动记录会全部清空，角色记忆里相关的小红书事件（包括“关注了你”）也会一并删除；昵称、头像和设置（参与角色等）会保留。无法恢复。`)) return;
+    // 同时清掉角色记忆里与这些笔记相关的事件，以及"关注了你"这一条
+    state.notes.forEach(note => deleteXiaohongshuProjectionEventsForNote(note.id));
+    deleteXiaohongshuFollowUserEvents();
+    const fresh = createDefaultXiaohongshuState();
+    const next = saveXiaohongshuState({ ...fresh, profile: state.profile, settings: state.settings });
+    setState(next);
+    setSelectedNoteId(null);
+    setMessagePanel(null);
+    setSelectedDmThreadId(null);
+    setReplyTarget(null);
+    setCommentDraft("");
+    setSelectedTab("home");
+    setSettingsOpen(false);
+    clearErrorState();
+    onNotice?.("账号已重置");
   }
 
   function handleResetSettingsDraft() {
@@ -2821,6 +2900,11 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                   {selectedAuthorFollowing ? "已关注" : "关注"}
                 </button>
               ) : null}
+              {selectedNote.source !== "user" ? (
+                <button type="button" className="cp-xhs-detail-follow is-following" onClick={() => handleStartDmWithAuthor(selectedNote)}>
+                  私信
+                </button>
+              ) : null}
               <button type="button" className="cp-xhs-detail-share" aria-label="分享" onClick={() => handleShareNote(selectedNote)}>
                 <ShareFat size={25} weight="regular" />
               </button>
@@ -3011,6 +3095,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
               <div className="xhs-message-section-title">
                 <strong>私信</strong>
                 {dmThreads.length > 0 ? <span>{dmThreads.length} 个对话</span> : null}
+                <button type="button" className="xhs-dm-start-btn" disabled={busy !== "idle"} onClick={() => setDmPickerOpen(true)}>＋ 发起私信</button>
               </div>
               <div className="cp-xhs-thread-list">
                 {dmThreads.length === 0 ? <div className="cp-xhs-mini-empty">暂无私信</div> : null}
@@ -3265,6 +3350,39 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
         </div>
       ) : null}
 
+      {dmPickerOpen ? (
+        <div className="xhs-modal-backdrop" onClick={() => setDmPickerOpen(false)}>
+          <section className="xhs-profile-edit-sheet xhs-settings-edit-sheet" onClick={event => event.stopPropagation()}>
+            <header className="xhs-profile-edit-header">
+              <strong>发起私信</strong>
+              <button type="button" className="xhs-sheet-close-btn" onClick={() => setDmPickerOpen(false)} aria-label="关闭">×</button>
+            </header>
+            <div className="xhs-profile-edit-body">
+              <div className="xhs-profile-edit-field">
+                <span className="xhs-profile-edit-section-title">PARTICIPANTS <em>选择要私信的参与角色</em></span>
+                <div className="xhs-settings-edit-participants">
+                  {characters.filter(character => state.settings.participantCharacterIds.includes(character.id)).length === 0 ? (
+                    <span className="xhs-settings-edit-participants-empty">暂无参与角色，请先在设置里勾选</span>
+                  ) : (
+                    characters
+                      .filter(character => state.settings.participantCharacterIds.includes(character.id))
+                      .map((character) => {
+                        const displayName = resolveCharacterXiaohongshuDisplayName(character);
+                        return (
+                          <button key={character.id} type="button" onClick={() => handleStartDmWithName(displayName)}>
+                            <span>{character.avatar ? <img src={character.avatar} alt="" /> : displayName.slice(0, 1)}</span>
+                            <em>{displayName}</em>
+                          </button>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {settingsOpen ? (
         <div className="xhs-modal-backdrop" onClick={() => setSettingsOpen(false)}>
           <section
@@ -3279,23 +3397,25 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
             <div className="xhs-profile-edit-body">
               <div className="xhs-profile-edit-field">
                 <span className="xhs-profile-edit-section-title">ACCOUNT <em>账号（各自独立的笔记、关注和参与角色）</em></span>
-                <div className="xhs-settings-edit-participants">
+                <div className="xhs-account-current">当前账号：<strong>{accountRegistry.accounts.find(item => item.id === accountRegistry.activeId)?.name ?? "账号 1"}</strong></div>
+                <div className="xhs-account-chips">
                   {accountRegistry.accounts.map(account => (
                     <button
                       key={account.id}
                       type="button"
-                      className={account.id === accountRegistry.activeId ? "is-selected" : ""}
+                      className={`xhs-account-chip ${account.id === accountRegistry.activeId ? "is-active" : ""}`}
                       disabled={busy !== "idle"}
                       onClick={() => handleSwitchAccount(account.id)}
                     >
-                      {account.name}
+                      {account.id === accountRegistry.activeId ? "✓ " : ""}{account.name}
                     </button>
                   ))}
-                  <button type="button" disabled={busy !== "idle"} onClick={handleCreateAccount}>＋ 新账号</button>
+                  <button type="button" className="xhs-account-chip xhs-account-chip--ghost" disabled={busy !== "idle"} onClick={handleCreateAccount}>＋ 新账号</button>
                 </div>
-                <div className="xhs-settings-edit-participants">
+                <div className="xhs-account-actions">
                   <button type="button" onClick={handleRenameAccount}>重命名当前账号</button>
-                  {accountRegistry.activeId !== "default" ? (
+                  <button type="button" disabled={busy !== "idle"} onClick={handleResetAccount}>重置当前账号</button>
+                  {accountRegistry.accounts.length > 1 ? (
                     <button type="button" disabled={busy !== "idle"} onClick={handleDeleteAccount}>删除当前账号</button>
                   ) : null}
                 </div>
@@ -3310,7 +3430,11 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                   max={100}
                   value={settingsDraft.sendToCharacterProbability}
                   placeholder="发给角色的概率 (0–100)"
-                  onChange={event => setSettingsDraft(prev => ({ ...prev, sendToCharacterProbability: Number(event.target.value) }))}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    // 允许输入过程中清空；保存时空值按 0 处理（见 handleSaveSettings）
+                    setSettingsDraft(prev => ({ ...prev, sendToCharacterProbability: (raw === "" ? "" : Number(raw)) as number }));
+                  }}
                 />
               </div>
 
@@ -3346,7 +3470,12 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                   {characters.length === 0 ? (
                     <span className="xhs-settings-edit-participants-empty">暂无角色</span>
                   ) : (
-                    characters.map((character) => {
+                    <>
+                    {characters.filter(character =>
+                      !character.tags?.includes("配角")
+                      || showSupportingParticipants
+                      || settingsDraft.participantCharacterIds.includes(character.id)
+                    ).map((character) => {
                       const selected = settingsDraft.participantCharacterIds.includes(character.id);
                       return (
                         <button
@@ -3364,7 +3493,16 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                           <em>{character.name}</em>
                         </button>
                       );
-                    })
+                    })}
+                    {characters.some(character => character.tags?.includes("配角")) ? (
+                      <button type="button" onClick={() => setShowSupportingParticipants(v => !v)}>
+                        <span>配</span>
+                        <em>
+                          配角 {characters.filter(character => character.tags?.includes("配角")).length} · {showSupportingParticipants ? "折叠" : "展开"}
+                        </em>
+                      </button>
+                    ) : null}
+                    </>
                   )}
                 </div>
               </div>
