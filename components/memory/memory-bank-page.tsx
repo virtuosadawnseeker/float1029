@@ -20,6 +20,7 @@ import {
     getMemoryCountByType,
     getLastSummarizedTimestamp,
     getLastCoreSummarizedTimestamp,
+    getEventCounter,
 } from "@/lib/memory-storage";
 import { hydrateChatStorage } from "@/lib/chat-storage";
 import { loadNativeTimeline, type NativeTimelineEntry } from "@/lib/short-term-assembler";
@@ -1181,6 +1182,13 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
 
                 {/* Summarization interval */}
                 <p className="menu-group-desc mx-2">自动总结间隔</p>
+                {selectedCharId && (
+                    <p className="menu-group-desc mx-2" style={{ fontWeight: 600 }}>
+                        当前计数 {getEventCounter(selectedCharId)} / {config.summarizationEventInterval ?? 50}
+                        （{selectedChar?.name ?? "该角色"}离下次自动总结还差 {Math.max(0, (config.summarizationEventInterval ?? 50) - getEventCounter(selectedCharId))}；
+                        私聊每次回复计 2，手动总结后会清零）
+                    </p>
+                )}
                 <div className="menu-group">
                     <MemorySettingsSliderItem
                         icon={Clock}
