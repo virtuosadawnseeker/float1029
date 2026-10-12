@@ -25,7 +25,10 @@ type PersistedCalendarStore = {
 };
 
 export type CalendarConfig = {
+  /** 旧版全局开关；仅在 autoGenerateCharacterIds 尚未建立时作为兜底 */
   autoGenerateEnabled: boolean;
+  /** 开启「每周自动生成」的角色 id；未设置（undefined）表示沿用旧版全局开关 */
+  autoGenerateCharacterIds?: string[];
   theme: string;
   /** 详情页时间轴一页显示的天数（1/2/3/5/7），默认 2 */
   daysPerPage: number;

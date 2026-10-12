@@ -153,7 +153,6 @@ export function PhoneCalendarApp({
   const [fabMenuOpen, setFabMenuOpen] = useState(false);
   const autoAttemptedRef = useRef<Set<string>>(new Set());
   const [editingItem, setEditingItem] = useState<(CalendarEventDraft & { originalDate?: string }) | null>(null);
-  const autoGenerateEnabled = config.autoGenerateEnabled;
 
   const [menstrualDraft, setMenstrualDraft] = useState<{
     cycleLength: string;
@@ -200,6 +199,12 @@ export function PhoneCalendarApp({
     () => owners.find(owner => owner.key === selectedKey) ?? owners[0] ?? null,
     [owners, selectedKey],
   );
+  // 每周自动生成按角色单独开关；旧版全局开关仅在尚未按角色设置过时兜底
+  const autoGenerateEnabled = selectedOwner?.ownerType === "character"
+    ? (config.autoGenerateCharacterIds
+      ? config.autoGenerateCharacterIds.includes(selectedOwner.ownerId)
+      : config.autoGenerateEnabled)
+    : false;
   const weekStart = useMemo(() => getWeekStartIso(parseIsoDate(selectedDate)), [selectedDate]);
 
   const itemsByDate = useMemo(() => {
@@ -907,7 +912,7 @@ export function PhoneCalendarApp({
             </div>
             <div className="calendar-confirm-desc">
               {autoGenerateEnabled
-                ? "关闭后将不再自动为角色生成每周日程"
+                ? <>关闭后将不再自动为 <strong>{selectedOwner.name}</strong> 生成每周日程（其他角色不受影响）</>
                 : <>每周将自动为 <strong>{selectedOwner.name}</strong> 生成日程安排</>}
             </div>
             <div className="calendar-confirm-footer">
@@ -918,11 +923,15 @@ export function PhoneCalendarApp({
                 data-variant="primary"
                 onClick={() => {
                   const next = !autoGenerateEnabled;
-                  const nextConfig = { ...config, autoGenerateEnabled: next };
+                  const baseIds = config.autoGenerateCharacterIds
+                    ?? (config.autoGenerateEnabled ? loadCharacters().map(c => c.id) : []);
+                  const idSet = new Set(baseIds);
+                  if (next) idSet.add(selectedOwner.ownerId); else idSet.delete(selectedOwner.ownerId);
+                  const nextConfig = { ...config, autoGenerateEnabled: false, autoGenerateCharacterIds: Array.from(idSet) };
                   setConfig(nextConfig);
                   saveCalendarConfig(nextConfig);
                   setShowAutoConfirm(false);
-                  onNotice?.(next ? "已开启每周自动生成" : "已关闭每周自动生成");
+                  onNotice?.(next ? `已为${selectedOwner.name}开启每周自动生成` : `已为${selectedOwner.name}关闭每周自动生成`);
                 }}
               >
                 确认
