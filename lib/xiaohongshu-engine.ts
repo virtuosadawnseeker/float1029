@@ -1634,7 +1634,7 @@ export function applyNpcCommentReply(note: XiaohongshuNote, reaction: ParsedXiao
   note: XiaohongshuNote;
   notifications: ReturnType<typeof makeXiaohongshuNotification>[];
 } {
-  const shouldNotifyUser = note.source === "user";
+  const shouldNotifyUser = true; // 回复的是用户的评论，无论笔记是谁的都要通知
   const comments = reaction.comments
     .filter(comment => comment.text)
     .map(comment => makeXiaohongshuComment({
@@ -1699,7 +1699,8 @@ export function applyCharacterCommentReply(note: XiaohongshuNote, character: Cha
   mainComment: XiaohongshuComment;
   threadComments: XiaohongshuComment[];
 } {
-  const shouldNotifyUser = note.source === "user";
+  const isOwnNote = note.source === "user";
+  const shouldNotifyUser = true; // 回复的是用户的评论，无论笔记是谁的都要通知
   const displayName = resolveCharacterXiaohongshuDisplayName(character);
   const comment = makeXiaohongshuComment({
     noteId: note.id,
@@ -1732,14 +1733,14 @@ export function applyCharacterCommentReply(note: XiaohongshuNote, character: Cha
       characterId: character.id,
       thread: reaction.thread,
       mainCommentId: comment.id,
-      shouldNotifyUser,
+      shouldNotifyUser: isOwnNote,
     });
     updated = result.note;
     threadNotifications = result.notifications;
     threadComments = result.appended;
   }
   const notifications = shouldNotifyUser ? [
-    reaction.liked ? makeXiaohongshuNotification({
+    isOwnNote && reaction.liked ? makeXiaohongshuNotification({
       type: "like",
       noteId: note.id,
       actorName: displayName,
@@ -1748,7 +1749,7 @@ export function applyCharacterCommentReply(note: XiaohongshuNote, character: Cha
       thumbnailText: note.title,
       unread: true,
     }) : null,
-    reaction.saved ? makeXiaohongshuNotification({
+    isOwnNote && reaction.saved ? makeXiaohongshuNotification({
       type: "save",
       noteId: note.id,
       actorName: displayName,
@@ -1867,7 +1868,8 @@ export function applyCharacterMentionReply(note: XiaohongshuNote, character: Cha
   mainComment: XiaohongshuComment;
   threadComments: XiaohongshuComment[];
 } {
-  const shouldNotifyUser = note.source === "user";
+  const isOwnNote = note.source === "user";
+  const shouldNotifyUser = true; // @ 回复的是用户，无论笔记是谁的都要通知
   const displayName = resolveCharacterXiaohongshuDisplayName(character);
   const comment = makeXiaohongshuComment({
     noteId: note.id,
@@ -1894,7 +1896,7 @@ export function applyCharacterMentionReply(note: XiaohongshuNote, character: Cha
       characterId: character.id,
       thread: reaction.thread,
       mainCommentId: comment.id,
-      shouldNotifyUser,
+      shouldNotifyUser: isOwnNote,
     });
     updated = result.note;
     threadNotifications = result.notifications;
