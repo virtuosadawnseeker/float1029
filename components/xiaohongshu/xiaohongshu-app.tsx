@@ -69,6 +69,7 @@ import {
   saveXiaohongshuState,
 } from "@/lib/xiaohongshu-storage";
 import {
+  deleteXiaohongshuFollowUserEvents,
   deleteXiaohongshuProjectionEventForComment,
   deleteXiaohongshuProjectionEventsForNote,
   recordXiaohongshuCommentEvent,
@@ -1565,7 +1566,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   }
 
   function handleDeleteAccount() {
-    if (busy !== "idle" || accountRegistry.activeId === "default") return;
+    if (busy !== "idle" || accountRegistry.accounts.length <= 1) return;
     const current = accountRegistry.accounts.find(item => item.id === accountRegistry.activeId);
     if (!window.confirm(`确定删除「${current?.name ?? "该账号"}」吗？它的笔记、关注和通知会全部清除，且无法恢复。`)) return;
     reloadForAccount(deleteXiaohongshuAccount(accountRegistry.activeId));
@@ -1575,7 +1576,10 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   function handleResetAccount() {
     if (busy !== "idle") return;
     const current = accountRegistry.accounts.find(item => item.id === accountRegistry.activeId);
-    if (!window.confirm(`确定重置「${current?.name ?? "当前账号"}」吗？笔记、信息流、关注、粉丝、通知和互动记录会全部清空；昵称、头像和设置（参与角色等）会保留。无法恢复。`)) return;
+    if (!window.confirm(`确定重置「${current?.name ?? "当前账号"}」吗？笔记、信息流、关注、粉丝、通知和互动记录会全部清空，角色记忆里相关的小红书事件（包括“关注了你”）也会一并删除；昵称、头像和设置（参与角色等）会保留。无法恢复。`)) return;
+    // 同时清掉角色记忆里与这些笔记相关的事件，以及"关注了你"这一条
+    state.notes.forEach(note => deleteXiaohongshuProjectionEventsForNote(note.id));
+    deleteXiaohongshuFollowUserEvents();
     const fresh = createDefaultXiaohongshuState();
     const next = saveXiaohongshuState({ ...fresh, profile: state.profile, settings: state.settings });
     setState(next);
@@ -3316,7 +3320,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                 <div className="xhs-account-actions">
                   <button type="button" onClick={handleRenameAccount}>重命名当前账号</button>
                   <button type="button" disabled={busy !== "idle"} onClick={handleResetAccount}>重置当前账号</button>
-                  {accountRegistry.activeId !== "default" ? (
+                  {accountRegistry.accounts.length > 1 ? (
                     <button type="button" disabled={busy !== "idle"} onClick={handleDeleteAccount}>删除当前账号</button>
                   ) : null}
                 </div>

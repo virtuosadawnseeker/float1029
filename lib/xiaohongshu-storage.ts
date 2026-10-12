@@ -53,8 +53,8 @@ export function loadXiaohongshuAccountRegistry(): XiaohongshuAccountRegistry {
         .map(item => ({ id: cleanText(item?.id, 80), name: cleanText(item?.name, 24) }))
         .filter(item => item.id)
       : [];
-    if (!accounts.some(item => item.id === DEFAULT_ACCOUNT_ID)) accounts.unshift({ id: DEFAULT_ACCOUNT_ID, name: "账号 1" });
-    const activeId = accounts.some(item => item.id === parsed.activeId) ? String(parsed.activeId) : DEFAULT_ACCOUNT_ID;
+    if (accounts.length === 0) return defaultAccountRegistry();
+    const activeId = accounts.some(item => item.id === parsed.activeId) ? String(parsed.activeId) : accounts[0].id;
     return { activeId, accounts: accounts.map((item, index) => ({ ...item, name: item.name || `账号 ${index + 1}` })) };
   } catch {
     return defaultAccountRegistry();
@@ -99,14 +99,14 @@ export function renameXiaohongshuAccount(accountId: string, name: string): Xiaoh
   });
 }
 
-/** 删除一个账号及其全部存档；默认账号和仅剩的最后一个账号不可删。 */
+/** 删除一个账号及其全部存档；至少要保留一个账号（账号 1 也可以删）。 */
 export function deleteXiaohongshuAccount(accountId: string): XiaohongshuAccountRegistry {
   const registry = loadXiaohongshuAccountRegistry();
-  if (accountId === DEFAULT_ACCOUNT_ID || !registry.accounts.some(item => item.id === accountId)) return registry;
+  if (registry.accounts.length <= 1 || !registry.accounts.some(item => item.id === accountId)) return registry;
   kvRemove(stateKeyForAccount(accountId));
   const accounts = registry.accounts.filter(item => item.id !== accountId);
   return saveXiaohongshuAccountRegistry({
-    activeId: registry.activeId === accountId ? DEFAULT_ACCOUNT_ID : registry.activeId,
+    activeId: registry.activeId === accountId ? accounts[0].id : registry.activeId,
     accounts,
   });
 }
