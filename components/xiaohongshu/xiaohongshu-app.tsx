@@ -55,6 +55,7 @@ import {
   XiaohongshuGenerationError,
 } from "@/lib/xiaohongshu-engine";
 import {
+  createDefaultXiaohongshuState,
   createUserXiaohongshuNote,
   createXiaohongshuAccount,
   deleteXiaohongshuAccount,
@@ -1569,6 +1570,24 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
     if (!window.confirm(`确定删除「${current?.name ?? "该账号"}」吗？它的笔记、关注和通知会全部清除，且无法恢复。`)) return;
     reloadForAccount(deleteXiaohongshuAccount(accountRegistry.activeId));
     onNotice?.("账号已删除");
+  }
+
+  function handleResetAccount() {
+    if (busy !== "idle") return;
+    const current = accountRegistry.accounts.find(item => item.id === accountRegistry.activeId);
+    if (!window.confirm(`确定重置「${current?.name ?? "当前账号"}」吗？笔记、信息流、关注、粉丝、通知和互动记录会全部清空；昵称、头像和设置（参与角色等）会保留。无法恢复。`)) return;
+    const fresh = createDefaultXiaohongshuState();
+    const next = saveXiaohongshuState({ ...fresh, profile: state.profile, settings: state.settings });
+    setState(next);
+    setSelectedNoteId(null);
+    setMessagePanel(null);
+    setSelectedDmThreadId(null);
+    setReplyTarget(null);
+    setCommentDraft("");
+    setSelectedTab("home");
+    setSettingsOpen(false);
+    clearErrorState();
+    onNotice?.("账号已重置");
   }
 
   function handleResetSettingsDraft() {
@@ -3296,6 +3315,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
                 </div>
                 <div className="xhs-account-actions">
                   <button type="button" onClick={handleRenameAccount}>重命名当前账号</button>
+                  <button type="button" disabled={busy !== "idle"} onClick={handleResetAccount}>重置当前账号</button>
                   {accountRegistry.activeId !== "default" ? (
                     <button type="button" disabled={busy !== "idle"} onClick={handleDeleteAccount}>删除当前账号</button>
                   ) : null}
