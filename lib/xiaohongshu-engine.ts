@@ -802,6 +802,7 @@ function buildXiaohongshuUserIdentityHint(input: {
   return [
     "<xiaohongshu_user_identity_hint>",
     ...body,
+    "如果你输出「延伸」评论且你本人有一定知名度或公开身份：路人可以偶尔（并非每次）在楼中楼里认出你、惊讶或质疑真伪，例如“这是XX本人吗”；多数时候路人仍是正常反应，不要所有路人都认出你。",
     "</xiaohongshu_user_identity_hint>",
   ].join("\n");
 }

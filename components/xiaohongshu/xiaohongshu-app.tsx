@@ -1568,7 +1568,10 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
   function handleDeleteAccount() {
     if (busy !== "idle" || accountRegistry.accounts.length <= 1) return;
     const current = accountRegistry.accounts.find(item => item.id === accountRegistry.activeId);
-    if (!window.confirm(`确定删除「${current?.name ?? "该账号"}」吗？它的笔记、关注和通知会全部清除，且无法恢复。`)) return;
+    if (!window.confirm(`确定删除「${current?.name ?? "该账号"}」吗？它的笔记、关注和通知会全部清除，角色记忆里相关的小红书事件（包括“关注了你”）也会一并删除，且无法恢复。`)) return;
+    // 与重置一致：同时清掉角色记忆里与该账号笔记相关的小红书事件和“关注了你”
+    state.notes.forEach(note => deleteXiaohongshuProjectionEventsForNote(note.id));
+    deleteXiaohongshuFollowUserEvents();
     reloadForAccount(deleteXiaohongshuAccount(accountRegistry.activeId));
     onNotice?.("账号已删除");
   }
