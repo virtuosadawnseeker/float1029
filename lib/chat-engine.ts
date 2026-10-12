@@ -2144,6 +2144,22 @@ export async function generateOfflineChatCompletion(
     };
 }
 
+/**
+ * 记忆：一次私聊回复计 2 条事件（用户消息 + AI 回复），并检查是否该自动总结（不阻塞回复）。
+ * 普通分支和原生工具调用分支都要调用，否则走工具调用的角色计数永远是 0。
+ */
+function trackChatMemoryEvents(character: Pick<Character, "id" | "name">): void {
+    (async () => {
+        try {
+            incrementEventCounter(character.id); // user message
+            incrementEventCounter(character.id); // AI reply
+            await maybeRunSummarization(character.id, character.name);
+        } catch (err) {
+            console.warn("[ChatEngine] Memory counter/summarization failed:", err);
+        }
+    })();
+}
+
 async function generateNativeChatCompletion(
     params: {
         session: ChatSession;
@@ -2471,6 +2487,8 @@ async function generateNativeChatCompletion(
             break;
         }
     }
+
+    trackChatMemoryEvents(character);
 
     return { parts };
 }
@@ -2914,16 +2932,7 @@ async function generateChatCompletionCore(
         }
     }
 
-    // Memory: increment event counter + check if summarization needed (non-blocking)
-    (async () => {
-        try {
-            incrementEventCounter(character.id); // user message
-            incrementEventCounter(character.id); // AI reply
-            await maybeRunSummarization(character.id, character.name);
-        } catch (err) {
-            console.warn("[ChatEngine] Memory counter/summarization failed:", err);
-        }
-    })();
+    trackChatMemoryEvents(character);
 
     return { parts };
 }
