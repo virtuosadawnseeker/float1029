@@ -10,6 +10,8 @@ export type MascotSettings = {
     avatarImage?: string;
     personaPrompt: string;
     chatEnabled: boolean;
+    /** 在聊天列表里置顶 AI助手；默认关闭，关闭时按最后活跃时间与普通会话一起排序 */
+    chatPinned: boolean;
     chatBackgroundImage?: string;
     chatCustomCSS?: string;
 };
@@ -19,6 +21,7 @@ export const DEFAULT_MASCOT_SETTINGS: MascotSettings = {
     avatarImage: DEFAULT_MASCOT_AVATAR,
     personaPrompt: MASCOT_PERSONA,
     chatEnabled: true,
+    chatPinned: false,
     chatBackgroundImage: "",
     chatCustomCSS: "",
 };
@@ -43,6 +46,7 @@ function normalizeMascotSettings(raw: unknown): MascotSettings {
         nickname,
         personaPrompt,
         chatEnabled: src.chatEnabled !== false,
+        chatPinned: src.chatPinned === true,
         avatarImage: typeof src.avatarImage === "string" && src.avatarImage.trim() ? src.avatarImage : DEFAULT_MASCOT_AVATAR,
         chatBackgroundImage: typeof src.chatBackgroundImage === "string" ? src.chatBackgroundImage : "",
         chatCustomCSS: typeof src.chatCustomCSS === "string" ? src.chatCustomCSS : "",

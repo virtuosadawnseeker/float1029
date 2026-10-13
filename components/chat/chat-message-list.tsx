@@ -25,6 +25,7 @@ import { kvSet } from "@/lib/kv-db";
 import { ChatFallbackAvatar } from "./chat-fallback-avatar";
 import {
     getMascotLastPreview,
+    getMascotLastActivityTime,
     getMascotChatSnapshot,
     hydrateMascotChat,
     subscribeMascotChat,
@@ -285,7 +286,7 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                             const showMascot = mascotSettings.chatEnabled
                                 && listTab !== "group"
                                 && (!keyword || (mascotSettings.nickname || "AI助手").toLowerCase().includes(keyword));
-                            const regularItems = [...sessions]
+                            const sortedSessions = [...sessions]
                             .filter(s => {
                                 if (!(s.isGroup || contactIds.has(s.contactId))) return false;
                                 if (!hasSessionListContent(s.id)) return false;
@@ -302,12 +303,42 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                                 const aTime = getSessionListTime(a);
                                 const bTime = getSessionListTime(b);
                                 return parseTime(bTime) - parseTime(aTime);
-                            })
-                            .map(s => (
+                            });
+                            const renderSession = (s: ChatSession) => (
                                 <div key={s.id}>
                                     <SessionItem session={s} onSelect={() => onSelectSession(s)} isPinned={!!s.isPinned} />
                                 </div>
-                            ));
+                            );
+                            const mascotRow = showMascot ? (
+                                <MascotSessionItem
+                                    key="__mascot__"
+                                    name={mascotSettings.nickname || "AI助手"}
+                                    avatarUrl={mascotAvatarUrl}
+                                    preview={getMascotLastPreview()}
+                                    isThinking={mascotChat.isThinking}
+                                    onSelect={onSelectMascot}
+                                />
+                            ) : null;
+                            // AI助手默认和普通会话一起按最后活跃时间排；开启「置顶」时与置顶会话同组（置顶在前）
+                            const mascotPinned = mascotSettings.chatPinned === true;
+                            const mascotTime = getMascotLastActivityTime();
+                            const regularItems: React.ReactNode[] = [];
+                            let mascotPlaced = !mascotRow;
+                            const placeMascotIfDue = (nextSession?: ChatSession) => {
+                                if (mascotPlaced) return;
+                                if (!nextSession) { regularItems.push(mascotRow); mascotPlaced = true; return; }
+                                const nextPinned = !!nextSession.isPinned;
+                                // 置顶的 AI助手排在所有置顶会话之前；未置顶时插到第一个更早的非置顶会话之前
+                                const due = mascotPinned
+                                    ? true
+                                    : !nextPinned && mascotTime >= parseTime(getSessionListTime(nextSession));
+                                if (due) { regularItems.push(mascotRow); mascotPlaced = true; }
+                            };
+                            for (const s of sortedSessions) {
+                                placeMascotIfDue(s);
+                                regularItems.push(renderSession(s));
+                            }
+                            placeMascotIfDue();
                             if (!showMascot && regularItems.length === 0) {
                                 return (
                                     <div className="px-5 py-10 text-center text-[var(--c-icon)] ts-14">
@@ -317,15 +348,6 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                             }
                             return (
                                 <>
-                                    {showMascot && (
-                                        <MascotSessionItem
-                                            name={mascotSettings.nickname || "AI助手"}
-                                            avatarUrl={mascotAvatarUrl}
-                                            preview={getMascotLastPreview()}
-                                            isThinking={mascotChat.isThinking}
-                                            onSelect={onSelectMascot}
-                                        />
-                                    )}
                                     {regularItems}
                                 </>
                             );

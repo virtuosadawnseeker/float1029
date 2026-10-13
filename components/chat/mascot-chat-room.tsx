@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { AlertCircle, ChevronLeft, Code, Image as ImageIcon, MessageSquare, MoreHorizontal, RotateCcw, Sparkles, Trash2, UserRound } from "lucide-react";
+import { AlertCircle, ChevronLeft, Code, Image as ImageIcon, MessageSquare, MoreHorizontal, Pin, RotateCcw, Sparkles, Trash2, UserRound } from "lucide-react";
 import { PageShell } from "@/components/ui/page-shell";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { MediaPreviewOverlay } from "@/components/chat/media-preview-overlay";
-import { Input } from "@/components/ui/form";
+import { Input, Toggle } from "@/components/ui/form";
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
 import { SessionCustomCSS } from "@/components/ui/session-custom-css";
 import { CHAT_SESSION_CSS_EXAMPLE } from "@/lib/css-examples";
@@ -221,6 +221,16 @@ function MascotInfoPanel({
                         <div className="menu-label-group"><span className="menu-label">修改昵称</span></div>
                         <div className="menu-right"><span className="menu-desc mr-1">{settings.nickname}</span></div>
                     </button>
+                    <div className="menu-item">
+                        <MascotInfoIcon color="var(--c-action-blue,#246bfd)"><Pin size={22} strokeWidth={1.75} /></MascotInfoIcon>
+                        <div className="menu-label-group">
+                            <span className="menu-label">置顶聊天</span>
+                            <span className="menu-desc">关闭时按最后聊天时间与其他会话一起排序</span>
+                        </div>
+                        <div className="menu-right">
+                            <Toggle checked={settings.chatPinned === true} onChange={(checked) => updateMascotSettings({ chatPinned: checked })} />
+                        </div>
+                    </div>
                     <button className="menu-item" onClick={() => setEditingPersona(true)}>
                         <MascotInfoIcon color="var(--c-icon-active)"><UserRound size={22} strokeWidth={1.75} /></MascotInfoIcon>
                         <div className="menu-label-group">
