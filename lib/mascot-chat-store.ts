@@ -741,3 +741,15 @@ export function getMascotLastPreview(): string {
     if (latest.role === "user") return latest.images?.length ? "[图片] " + latest.text : latest.text;
     return latest.displayText || latest.text;
 }
+
+/** AI助手最后一条可见消息的时间（毫秒），用于聊天列表按活跃时间排序；没有消息时退回会话更新时间。 */
+export function getMascotLastActivityTime(): number {
+    const latest = [...messages].reverse().find((msg) => {
+        if (msg.hidden || msg.role === "tool") return false;
+        const text = (msg.displayText || msg.text || "").trim();
+        return !!text && text !== "（调用工具中...）" && text !== "（无内容）";
+    });
+    const msgTime = latest?.createdAt ? new Date(latest.createdAt).getTime() : 0;
+    if (Number.isFinite(msgTime) && msgTime > 0) return msgTime;
+    return sessions.reduce((max, session) => Math.max(max, session.updatedAt || 0), 0);
+}
