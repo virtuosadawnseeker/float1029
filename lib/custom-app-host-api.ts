@@ -1,5 +1,6 @@
 "use client";
 
+import { isCustomAppPermissionGranted } from "./custom-app-types";
 import type { CustomAppPermission, CustomAppPromptProfile, InstalledCustomApp } from "./custom-app-types";
 import {
   appendCustomAppTimelineEntry,
@@ -444,7 +445,7 @@ function appendSuggestion(app: InstalledCustomApp, suggestion: Omit<CustomAppSug
 }
 
 function hasPermission(app: InstalledCustomApp, permission: CustomAppPermission): boolean {
-  return app.permissions.includes(permission);
+  return isCustomAppPermissionGranted(app, permission);
 }
 
 function serializeMemoryEntry(entry: MemoryEntry): Record<string, unknown> {

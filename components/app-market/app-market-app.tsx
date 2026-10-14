@@ -62,6 +62,7 @@ import {
   getCustomAppIconStyle,
   setCustomAppIconStyle,
   type CustomAppIconStyle,
+  setCustomAppDeniedPermissions,
 } from "@/lib/custom-app-storage";
 import type { CustomAppManifest, CustomAppPermission, CustomAppResourceDeclarations, InstalledCustomApp } from "@/lib/custom-app-types";
 import { createCustomAppPackageFile } from "@/lib/custom-app-package";
@@ -315,6 +316,7 @@ export function AppMarketApp({ onClose, onOpenCustomApp, onInstallToDesktop, onN
   // 漏进本地测试,给非创作者暴露换包/编辑入口
   const [marketReady, setMarketReady] = useState(false);
   const [pendingApp, setPendingApp] = useState<InstalledCustomApp | null>(null);
+  const [pendingDenied, setPendingDenied] = useState<CustomAppPermission[]>([]);
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [selectedMarketApp, setSelectedMarketApp] = useState<CustomAppMarketItem | null>(null);
   const [selectedInstalledApp, setSelectedInstalledApp] = useState<InstalledCustomApp | null>(null);
@@ -406,6 +408,7 @@ export function AppMarketApp({ onClose, onOpenCustomApp, onInstallToDesktop, onN
     ].some(value => value.toLowerCase().includes(keyword)));
   }, [marketApps, query]);
 
+  useEffect(() => { setPendingDenied(pendingApp?.deniedPermissions ?? []); }, [pendingApp]);
   const refresh = () => setApps(loadInstalledCustomApps());
 
   function showErrorDialog(message: unknown, title = "操作失败") {
@@ -842,7 +845,7 @@ export function AppMarketApp({ onClose, onOpenCustomApp, onInstallToDesktop, onN
   async function confirmInstall() {
     if (!pendingApp) return;
     setBusy(true);
-    const base = appWithVersion(pendingApp, publishVersion);
+    const base = { ...appWithVersion(pendingApp, publishVersion), deniedPermissions: pendingDenied };
     // 编辑本地测试 APP 后的"本机测试"是原地替换：沿用原运行时 id 和 installedAt，数据保留
     const app = localEditTarget ? { ...base, id: localEditTarget.id, installedAt: localEditTarget.installedAt } : base;
     const installed = await installApp(app);
@@ -1378,13 +1381,22 @@ export function AppMarketApp({ onClose, onOpenCustomApp, onInstallToDesktop, onN
               </div>
 
               <div className="app-market-permissions">
-                <span>请求权限</span>
+                <span>请求权限(可取消勾选不想给的)</span>
                 {pendingApp.permissions.length === 0 ? (
                   <p>未声明特殊权限，仅作为页面运行。</p>
                 ) : (
                   <ul>
                     {pendingApp.permissions.map(permission => (
-                      <li key={permission}>{permissionLabelWithContext(permission, pendingApp.manifest)}</li>
+                      <li key={permission}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <input
+                            type="checkbox"
+                            checked={!pendingDenied.includes(permission)}
+                            onChange={event => setPendingDenied(prev => (event.target.checked ? prev.filter(p => p !== permission) : [...prev, permission]))}
+                          />
+                          <span>{permissionLabelWithContext(permission, pendingApp.manifest)}</span>
+                        </label>
+                      </li>
                     ))}
                   </ul>
                 )}
@@ -1574,14 +1586,30 @@ export function AppMarketApp({ onClose, onOpenCustomApp, onInstallToDesktop, onN
                 })}
               </div>
               <div className="app-market-permissions">
-                <span>已授权能力</span>
+                <span>已授权能力(取消勾选即关闭,下次打开生效)</span>
                 {selectedInstalledApp.permissions.length === 0 ? (
                   <p>未声明特殊权限。</p>
                 ) : (
                   <ul>
-                    {selectedInstalledApp.permissions.map(permission => (
-                      <li key={permission}>{permissionLabelWithContext(permission, selectedInstalledApp.manifest)}</li>
-                    ))}
+                    {selectedInstalledApp.permissions.map(permission => {
+                      const denied = selectedInstalledApp.deniedPermissions ?? [];
+                      return (
+                        <li key={permission}>
+                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <input
+                              type="checkbox"
+                              checked={!denied.includes(permission)}
+                              onChange={event => {
+                                const nextDenied = event.target.checked ? denied.filter(p => p !== permission) : [...denied, permission];
+                                const updated = setCustomAppDeniedPermissions(selectedInstalledApp.id, nextDenied);
+                                if (updated) { setSelectedInstalledApp(updated); refresh(); }
+                              }}
+                            />
+                            <span>{permissionLabelWithContext(permission, selectedInstalledApp.manifest)}</span>
+                          </label>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>
