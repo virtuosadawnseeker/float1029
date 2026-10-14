@@ -209,6 +209,7 @@ const SEARCH_MEDIA_BUBBLE_TYPES = new Set<SearchResultMediaType>([
     "transfer",
     "payment_request",
     "gift",
+    "takeout",
     "image",
     "location",
     "music_share",
@@ -271,6 +272,7 @@ function getSearchHaystack(msg: ChatMessage): string {
         clipSearchText(msg.mediaData?.musicTitle),
         clipSearchText(msg.mediaData?.xiaohongshuTitle),
         clipSearchText(msg.mediaData?.giftName),
+        clipSearchText(msg.mediaData?.takeoutItems),
         clipSearchText(msg.senderName),
     ].filter(Boolean).join("\n");
 }

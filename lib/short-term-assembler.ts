@@ -5,6 +5,7 @@
 
 import { isReadingDiscussMessage, isSystemInstructionMessage, loadChatSessions, loadChatMessages, type ChatMessage } from "./chat-storage";
 import { buildGroupAdminBracketText } from "./group-admin";
+import { formatTakeoutForPrompt } from "./takeout";
 import { loadMomentPosts, loadMomentComments } from "./moments-storage";
 import { loadCharacters } from "./character-storage";
 import { resolveUserIdentity } from "./settings-storage";
@@ -237,6 +238,7 @@ export function loadNativeTimeline(
                 else if (msg.mediaType === "contact_card") {
                     content = `[名片:${msg.mediaData?.contactCardName || msg.mediaData?.label || "联系人"}]`;
                 }
+                else if (msg.mediaType === "takeout") content = formatTakeoutForPrompt(msg.mediaData, userName);
                 else if (msg.mediaType === "gift") {
                     const giftName = msg.mediaData?.giftName || msg.mediaData?.label || "礼物";
                     content = msg.mediaData?.recipientName
@@ -340,6 +342,7 @@ export function loadNativeTimeline(
                 else if (msg.mediaType === "contact_card") {
                     content = `[名片:${msg.mediaData?.contactCardName || msg.mediaData?.label || "联系人"}]`;
                 }
+                else if (msg.mediaType === "takeout") content = formatTakeoutForPrompt(msg.mediaData, userName);
                 else if (msg.mediaType === "gift") {
                     const giftName = msg.mediaData?.giftName || msg.mediaData?.label || "礼物";
                     content = msg.mediaData?.recipientName
