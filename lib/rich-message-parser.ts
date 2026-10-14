@@ -593,6 +593,14 @@ function parseSegment(segment: string, parts: ParsedMessagePart[]) {
 
 // ── Main parser ──────────────────────────────────────────
 
+/**
+ * 去掉一个气泡末尾的逗号（，或 ,）。只处理整段结尾，段内的逗号不动；
+ * 句号、问号、省略号、感叹号等其他结尾标点保持原样。
+ */
+export function stripTrailingCommaOfBubble(segment: string): string {
+    return segment.replace(/[，,]+\s*$/, "").trimEnd();
+}
+
 export function parseAIResponse(rawText: string, previousState: StateValue[]): ParsedAIResponse {
     // 0. FIRST: extract ```html blocks and <style>+HTML before any processing
     const htmlBlockPlaceholders: { placeholder: string; original: string }[] = [];
@@ -647,7 +655,11 @@ export function parseAIResponse(rawText: string, previousState: StateValue[]): P
         .replace(/(\[表情包[：:][^\]]+\])\n\n+/g, "$1\n");
 
     // 3. Split by double newlines (placeholders still in place)
-    const segments = stickerMerged.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
+    //    每个气泡末尾的逗号去掉：真人发微信很少在句尾挂逗号，模型有时会把「，空行」当分条写出来。
+    const segments = stickerMerged
+        .split(/\n\n+/)
+        .map(s => stripTrailingCommaOfBubble(s.trim()))
+        .filter(Boolean);
 
     // 4. Parse each segment
     const parts: ParsedMessagePart[] = [];
