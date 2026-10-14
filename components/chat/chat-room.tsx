@@ -41,6 +41,8 @@ import { VideoCallScreen } from "./video-call-screen";
 import { GroupCallScreen } from "./group-call-screen";
 import { TransferTargetModal } from "./transfer-target-modal";
 import { GiftPickerModal } from "./gift-picker-modal";
+import { TakeoutOrderModal, type TakeoutOrderInput } from "./takeout-order-modal";
+import { TAKEOUT_ETA_MINUTES, scheduleTakeoutArrivalWake } from "@/lib/takeout";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { deleteWeixinCloudMessagesFromCloud, emitWeixinSyncToast, syncAllWeixinBotRuntimesToCloud } from "@/lib/weixin-cloud-sync";
 import { loadBindingConfig, loadPresets, loadRegexes, resolveBinding, resolveUserIdentity, resolveGroupUserIdentity } from "@/lib/settings-storage";
@@ -52,7 +54,7 @@ import { useKeyboardDismissAutoSend } from "@/components/chat/use-keyboard-dismi
 import { cancelBailoutKey } from "@/lib/push-bailout-client";
 import { PENDING_REPLY_PREFIX } from "@/lib/friend-request-engine";
 import type { UserIdentity } from "@/components/settings/user-identity";
-import { AlertCircle, Blocks, Check, Trash2, User, ChevronLeft, ChevronRight, Clapperboard, Clock, Gift, Languages, Loader2, MoreHorizontal, X } from "lucide-react";
+import { AlertCircle, Bike, Blocks, Check, Trash2, User, ChevronLeft, ChevronRight, Clapperboard, Clock, Gift, Languages, Loader2, MoreHorizontal, X } from "lucide-react";
 import { setDebugChatState } from "@/lib/debug-store";
 import { SessionCustomCSS } from "@/components/ui/session-custom-css";
 import { setChatActive } from "@/lib/music-action-queue";
@@ -178,6 +180,7 @@ const CHAT_VISUAL_MEDIA_TYPES = new Set([
     "transfer",
     "payment_request",
     "gift",
+    "takeout",
     "contact_card",
     "image",
     "location",
@@ -226,6 +229,7 @@ const CHAT_MEDIA_BUBBLE_TYPES = new Set([
     "transfer",
     "payment_request",
     "gift",
+    "takeout",
     "contact_card",
     "image",
     "location",
@@ -487,7 +491,7 @@ type PendingMessageJump = {
 };
 
 const TRANSIENT_MESSAGE_PREFIX = "ui-transient-";
-type RichModalKind = "photo" | "text_photo" | "red_packet" | "transfer" | "location" | "transfer_target" | "voice_msg" | "gift" | "system_instruction";
+type RichModalKind = "photo" | "takeout" | "text_photo" | "red_packet" | "transfer" | "location" | "transfer_target" | "voice_msg" | "gift" | "system_instruction";
 type ChatTextInputHandle = {
     appendText: (text: string, options?: { focus?: boolean }) => void;
     clear: () => void;
@@ -727,6 +731,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /></svg>, label: "红包", onClick: () => onOpenRichModal("red_packet") },
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><text x="12" y="16" textAnchor="middle" fontSize="12" fill="var(--c-text)" stroke="none">¥</text></svg>, label: "转账", onClick: () => onOpenRichModal(isGroup ? "transfer_target" : "transfer") },
         { icon: <Gift size={22} strokeWidth={1.5} color="var(--c-text)" />, label: "礼物", onClick: () => onOpenRichModal("gift") },
+        ...(isGroup ? [] : [{ icon: <Bike size={22} strokeWidth={1.5} color="var(--c-text)" />, label: "外卖", onClick: () => onOpenRichModal("takeout") }]),
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>, label: "位置", onClick: () => onOpenRichModal("location") },
         { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--c-text)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" /></svg>, label: "语音条", onClick: () => onOpenRichModal("voice_msg") },
         ...customPlusActions.map(action => ({
@@ -3554,6 +3559,54 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         });
         if (sent) showChatToast("礼物已送出");
         return sent;
+    };
+
+    const sendTakeoutOrder = (order: TakeoutOrderInput): boolean => {
+        if (session.isGroup || !character) {
+            showChatToast("外卖暂时只支持私聊");
+            return false;
+        }
+        if (!ensureGroupSpeakPermission()) return false;
+        if (isGenerating) {
+            showChatToast("请先等待对方回复");
+            return false;
+        }
+        const userName = userIdentity?.name || "你";
+        const pay = payWithWalletBalance({
+            amount: order.amount,
+            title: "点外卖",
+            detail: `${character.name}：${order.shop ? `${order.shop} ` : ""}${order.items} ${order.amount.toFixed(2)} 元`,
+            category: "外卖",
+        });
+        if (!pay.ok || !pay.transaction) {
+            showChatToast(pay.error ?? "余额不足");
+            return false;
+        }
+        cancelFollowUp(session.id);
+        const mediaData: NonNullable<ChatMessage["mediaData"]> = {
+            label: order.items,
+            amount: order.amount,
+            walletTransactionId: pay.transaction.id,
+            takeoutShop: order.shop || undefined,
+            takeoutItems: order.items,
+            takeoutNote: order.note || undefined,
+            takeoutSentAt: new Date().toISOString(),
+            takeoutEtaMinutes: TAKEOUT_ETA_MINUTES,
+            senderName: userName,
+        };
+        const newMsg = pushChatMessage({
+            sessionId: session.id,
+            role: "user",
+            content: "",
+            mediaType: "takeout",
+            mediaData,
+        });
+        setMessages(prev => [...prev, newMsg]);
+        // 先入库再预约:离线兜底推送要用到含这条外卖的历史
+        scheduleTakeoutArrivalWake({ sessionId: session.id, characterId: character.id, userName, data: mediaData });
+        setPendingGenerate(true);
+        showChatToast("外卖已下单");
+        return true;
     };
 
     const triggerAIResponse = async () => {
@@ -6422,6 +6475,15 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     onSend={(gift, recipient) => {
                         const sent = sendShoppingGiftMessage(gift, recipient);
                         if (sent) setRichModal(null);
+                    }}
+                    onClose={() => setRichModal(null)}
+                />
+            )}
+            {richModal === "takeout" && !session.isGroup && (
+                <TakeoutOrderModal
+                    characterName={character?.name || "TA"}
+                    onSend={(order) => {
+                        if (sendTakeoutOrder(order)) setRichModal(null);
                     }}
                     onClose={() => setRichModal(null)}
                 />
