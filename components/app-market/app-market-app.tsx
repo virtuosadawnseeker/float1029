@@ -1388,9 +1388,10 @@ export function AppMarketApp({ onClose, onOpenCustomApp, onInstallToDesktop, onN
                   <ul>
                     {pendingApp.permissions.map(permission => (
                       <li key={permission}>
-                        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <label style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                           <input
                             type="checkbox"
+                            style={{ flexShrink: 0, width: 18, height: 18, marginTop: 2 }}
                             checked={!pendingDenied.includes(permission)}
                             onChange={event => setPendingDenied(prev => (event.target.checked ? prev.filter(p => p !== permission) : [...prev, permission]))}
                           />
@@ -1595,9 +1596,10 @@ export function AppMarketApp({ onClose, onOpenCustomApp, onInstallToDesktop, onN
                       const denied = selectedInstalledApp.deniedPermissions ?? [];
                       return (
                         <li key={permission}>
-                          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <label style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
                             <input
                               type="checkbox"
+                            style={{ flexShrink: 0, width: 18, height: 18, marginTop: 2 }}
                               checked={!denied.includes(permission)}
                               onChange={event => {
                                 const nextDenied = event.target.checked ? denied.filter(p => p !== permission) : [...denied, permission];
