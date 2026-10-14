@@ -1509,6 +1509,7 @@ export function createBuiltinPreset(): PresetConfig {
                     "- {{char}}自己发布的内容需要输出点赞数、收藏数、评论数和前两个点赞/收藏昵称，并附带 3 到 8 条评论；评论主要来自小红书路人，但可以有 1~2 条由{{char}}自己作为笔记作者出现来回应路人",
                     "- 如果选择普通笔记，[类型]填 笔记，可以输出[图片描述]；如果选择视频笔记，[类型]填 视频，必须输出[视频描述]",
                     "- Xiaohongshu comments must come from strangers. In most cases, these users have no way to know {{char}}'s private life unless {{char}} is a public figure; do not use acquaintances from Moments, group chats, or private chats.",
+                    "- 如果{{char}}有一定知名度或公开身份（作品、职业、圈内口碑等），极少数情况下（大约十次评论里不到一次），可以有一两个路人从内容或作者名猜到{{char}}，并用符合自己性格的口吻表达，比如迟疑、半信半疑、顺口一问或悄悄蹲后续。每次的说法都要不同，不要重复固定句式，也不要套用\"这是XX本人吗\"这种问法；其余路人保持正常反应，绝大多数评论里没有人认出{{char}}。",
                     "- [评论数] 是该笔记显示的总评论数，可以远高于实际输出的评论条数；输出的评论只是评论区样例，不代表全部评论",
                     "- 发帖下的评论可以包含楼中楼；如需楼中楼，使用 [评论N回复对象]评论M，其中 M 必须是前面已经出现过的评论编号",
                     "- 当{{char}}本人作为发帖下的评论作者出现时，[评论N作者] 直接填 {{char}}，并用 [评论N回复对象] 指向你回应的路人评论编号",

@@ -35,7 +35,8 @@ export function splitResponseForPushPreview(rawText: string): string[] {
     text = text.replace(/\n{3,}/g, "\n\n").trim();
     return text
         .split(/\n\n+/)
-        .map(segment => humanizeSegment(segment.trim()))
+        // 与 parseAIResponse 一致：气泡末尾的逗号去掉（这里不 import 解析器，避免拉进它的依赖）
+        .map(segment => humanizeSegment(segment.trim().replace(/[，,]+\s*$/, "").trimEnd()))
         .map(segment => segment.replace(/\s+/g, " ").trim())
         .filter(Boolean);
 }
