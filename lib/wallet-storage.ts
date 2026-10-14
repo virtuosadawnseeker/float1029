@@ -406,6 +406,82 @@ export function adjustWalletCardAccount(
   return { ok: true, state: next, transaction };
 }
 
+const MAX_WALLET_AMOUNT = 1_000_000_000_000;
+
+/** 校验"直接修改余额"的目标金额；不合法时返回错误文案。 */
+function validateAdjustTarget(value: unknown): { ok: true; amount: number } | { ok: false; error: string } {
+  const raw = typeof value === "number" ? value : Number(String(value ?? "").replace(/[¥￥元,\s]/g, ""));
+  if (!Number.isFinite(raw)) return { ok: false, error: "请输入有效的金额。" };
+  if (raw < 0) return { ok: false, error: "余额不能为负。" };
+  if (raw > MAX_WALLET_AMOUNT) return { ok: false, error: "金额太大啦。" };
+  return { ok: true, amount: normalizeMoney(raw) };
+}
+
+/**
+ * 直接把【余额】改成指定金额。
+ * 会记一条"余额调整"流水（金额为差值），方便回头看改过什么。
+ */
+export function setWalletBalance(
+  nextBalance: number,
+  note = "",
+): { ok: boolean; state: WalletState; transaction?: WalletTransaction; error?: string } {
+  const current = loadWalletState();
+  const target = validateAdjustTarget(nextBalance);
+  if (!target.ok) return { ok: false, state: current, error: target.error };
+  const before = normalizeMoney(current.balance);
+  const delta = normalizeSignedMoney(target.amount - before);
+  if (delta === 0) return { ok: false, state: current, error: "余额没有变化。" };
+  const transaction = createTransaction({
+    accountId: WALLET_BALANCE_ACCOUNT_ID,
+    accountType: "balance",
+    title: "余额调整",
+    amount: delta,
+    kind: "adjustment",
+    category: "手动调整",
+    detail: cleanText(note, 200) || `余额由 ${formatWalletAmount(before)} 调整为 ${formatWalletAmount(target.amount)}`,
+    balanceAfter: target.amount,
+  });
+  const next = saveWalletState({
+    ...current,
+    balance: target.amount,
+    transactions: [transaction, ...current.transactions],
+  });
+  return { ok: true, state: next, transaction };
+}
+
+/** 直接把某张【银行卡】的余额改成指定金额，同样记一条"余额调整"流水。 */
+export function setWalletCardBalance(
+  cardId: string,
+  nextBalance: number,
+  note = "",
+): { ok: boolean; state: WalletState; transaction?: WalletTransaction; error?: string } {
+  const current = loadWalletState();
+  const card = current.cards.find(item => item.id === cardId);
+  if (!card) return { ok: false, state: current, error: "未找到这张银行卡。" };
+  const target = validateAdjustTarget(nextBalance);
+  if (!target.ok) return { ok: false, state: current, error: target.error };
+  const before = normalizeMoney(card.balance);
+  const delta = normalizeSignedMoney(target.amount - before);
+  if (delta === 0) return { ok: false, state: current, error: "余额没有变化。" };
+  const transaction = createTransaction({
+    accountId: card.id,
+    accountType: "card",
+    title: "余额调整",
+    amount: delta,
+    kind: "adjustment",
+    category: "手动调整",
+    detail: cleanText(note, 200) || `${card.title} 余额由 ${formatWalletAmount(before)} 调整为 ${formatWalletAmount(target.amount)}`,
+    balanceAfter: target.amount,
+  });
+  const now = new Date().toISOString();
+  const next = saveWalletState({
+    ...current,
+    cards: current.cards.map(item => item.id === card.id ? { ...item, balance: target.amount, updatedAt: now } : item),
+    transactions: [transaction, ...current.transactions],
+  });
+  return { ok: true, state: next, transaction };
+}
+
 export function creditWalletBalance(amount: number, title: string, detail: string, category = "余额"): WalletPaymentResult {
   const current = loadWalletState();
   const creditAmount = normalizeMoney(amount);

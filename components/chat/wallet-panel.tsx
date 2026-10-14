@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowUpFromLine, CreditCard, Plus, Trash2, WalletCards, Wifi } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, CreditCard, Pencil, Plus, Trash2, WalletCards, Wifi } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ui";
 import { PageShell } from "@/components/ui/page-shell";
@@ -12,6 +12,8 @@ import {
   formatWalletAmount,
   getWalletBalance,
   loadWalletState,
+  setWalletBalance,
+  setWalletCardBalance,
   transferCardToWalletBalance,
   transferWalletBalanceToCard,
   WALLET_UPDATED_EVENT,
@@ -126,6 +128,9 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
   const [newCardBalance, setNewCardBalance] = useState("0");
   const [newCardStyle, setNewCardStyle] = useState<WalletCardStyle>("graphite");
   const [deleteCardId, setDeleteCardId] = useState<string | null>(null);
+  const [editScope, setEditScope] = useState<"balance" | "card" | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cardStackRef = useRef<HTMLDivElement | null>(null);
 
@@ -247,6 +252,33 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
     closeBalanceTransfer();
   }
 
+  function openEditBalance(scope: "balance" | "card") {
+    const current = scope === "card" ? activeCard?.balance ?? 0 : walletBalance;
+    setEditValue(String(current));
+    setEditError(null);
+    setEditScope(scope);
+  }
+
+  function closeEditBalance() {
+    setEditScope(null);
+    setEditError(null);
+  }
+
+  function handleEditBalance() {
+    if (!editScope) return;
+    const result = editScope === "card"
+      ? activeCard
+        ? setWalletCardBalance(activeCard.id, Number(editValue))
+        : { ok: false as const, state: wallet, error: "未找到这张银行卡。" }
+      : setWalletBalance(Number(editValue));
+    if (!result.ok) {
+      setEditError(result.error ?? "修改失败。");
+      return;
+    }
+    refresh(result.state);
+    closeEditBalance();
+  }
+
   function handleAddCard() {
     const tail = newCardTail.replace(/\D/g, "").slice(-4);
     const next = createWalletCard({
@@ -359,6 +391,10 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
           <div className="relative flex items-end justify-between gap-3">
             <span className="ts-12 opacity-70">{wallet.transactions.length} 条流水</span>
             <div className="flex items-center gap-2">
+              <button type="button" className="wallet-balance-action" onClick={() => openEditBalance("balance")}>
+                <Pencil size={14} />
+                修改
+              </button>
               <button type="button" className="wallet-balance-action" onClick={() => openBalanceTransfer("deposit")}>
                 <ArrowDownToLine size={14} />
                 转入
@@ -399,7 +435,16 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
               <div className="ts-12 text-[var(--c-text)] opacity-65 mt-1">{activeCard.title} · {getDisplayCardNumber(activeCard.maskedNumber)}</div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => openEditBalance("card")}
+                className="wallet-bank-action text-[var(--c-text-title)]"
+                style={{ background: "color-mix(in srgb, var(--c-text-title) 8%, var(--c-card))" }}
+              >
+                <Pencil size={15} />
+                修改余额
+              </button>
               <button
                 type="button"
                 onClick={() => openBalanceTransfer("deposit", { scope: "card" })}
@@ -445,9 +490,11 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
               const outgoing = transaction.amount < 0;
               const TransactionIcon = transaction.kind === "payment"
                 ? CreditCard
-                : transaction.kind === "transfer_out"
-                  ? ArrowUpFromLine
-                  : ArrowDownToLine;
+                : transaction.kind === "adjustment"
+                  ? Pencil
+                  : transaction.kind === "transfer_out"
+                    ? ArrowUpFromLine
+                    : ArrowDownToLine;
               return (
                 <div key={transaction.id} className="py-3 flex items-center gap-3 border-t border-[color-mix(in_srgb,var(--c-card-border)_22%,transparent)]">
                   <div className="w-10 h-10 rounded-2xl flex items-center justify-center shrink-0" style={{ background: outgoing ? "color-mix(in srgb, var(--c-danger) 12%, var(--c-card))" : "color-mix(in srgb, var(--c-success) 12%, var(--c-card))", color: outgoing ? "var(--c-danger)" : "var(--c-success)" }}>
@@ -519,6 +566,26 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
             </label>
             {error ? <div className="ts-12 text-[var(--c-danger)]">{error}</div> : null}
             <button type="button" onClick={handleBalanceTransfer} className="h-12 rounded-2xl text-white ts-14 font-bold" style={{ background: "var(--c-icon-active)" }}>{transferConfirmLabel}</button>
+          </div>
+        </div>
+      ) : null}
+
+      {editScope ? (
+        <div className="absolute inset-0 z-[80] flex items-end" style={{ background: "rgba(0,0,0,0.35)" }} role="presentation" onClick={closeEditBalance}>
+          <div className="w-full rounded-t-[24px] bg-[var(--c-page-body-bg)] p-4 flex flex-col gap-4" style={{ paddingBottom: "calc(18px + env(safe-area-inset-bottom, 0px))" }} role="dialog" aria-modal="true" aria-label="修改余额" onClick={event => event.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <strong className="ts-16 text-[var(--c-text-title)]">{editScope === "card" ? `修改「${activeCard?.title ?? "银行卡"}」余额` : "修改余额"}</strong>
+              <span className="ts-12 text-[var(--c-text)] opacity-60">
+                当前 {formatWalletAmount(editScope === "card" ? activeCard?.balance ?? 0 : walletBalance)}
+              </span>
+            </div>
+            <label className="flex flex-col gap-2">
+              <span className="ts-12 font-semibold text-[var(--c-text-title)]">改为</span>
+              <input className="ui-input" type="number" inputMode="decimal" min={0} step={0.01} value={editValue} onChange={event => setEditValue(event.target.value)} autoFocus />
+            </label>
+            <div className="ts-11 text-[var(--c-text)] opacity-55">会在流水里记一条“余额调整”，方便回头查看。</div>
+            {editError ? <div className="ts-12 text-[var(--c-danger)]">{editError}</div> : null}
+            <button type="button" onClick={handleEditBalance} className="h-12 rounded-2xl text-white ts-14 font-bold" style={{ background: "var(--c-icon-active)" }}>确认修改</button>
           </div>
         </div>
       ) : null}
