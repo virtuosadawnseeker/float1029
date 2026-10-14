@@ -7,13 +7,11 @@ export const TAKEOUT_ETA_MINUTES = 30;
 export type TakeoutQuickPick = { shop: string; items: string; price: number; icon: string };
 
 export const TAKEOUT_QUICK_PICKS: TakeoutQuickPick[] = [
-    { shop: "奶茶店", items: "杨枝甘露(少糖)", price: 19, icon: "🧋" },
-    { shop: "咖啡店", items: "拿铁", price: 22, icon: "☕" },
-    { shop: "炸鸡店", items: "炸鸡桶套餐", price: 49, icon: "🍗" },
-    { shop: "面馆", items: "红烧牛肉面", price: 28, icon: "🍜" },
-    { shop: "烧烤店", items: "烤串夜宵拼盘", price: 68, icon: "🍢" },
-    { shop: "甜品店", items: "草莓蛋糕", price: 32, icon: "🍰" },
-    { shop: "药店", items: "感冒灵+热水袋", price: 36, icon: "💊" },
+    { shop: "咖啡店", items: "冰美式", price: 15, icon: "🧊" },
+    { shop: "螺蛳粉店", items: "螺蛳粉", price: 22, icon: "🍜" },
+    { shop: "甜品店", items: "榴莲千层", price: 38, icon: "🍰" },
+    { shop: "药店", items: "布洛芬", price: 18, icon: "💊" },
+    { shop: "便利店", items: "暖宝宝", price: 12, icon: "🔥" },
 ];
 
 type TakeoutData = NonNullable<ChatMessage["mediaData"]>;
