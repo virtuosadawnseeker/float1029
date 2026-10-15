@@ -6,7 +6,7 @@ import type { PresetConfig } from "./settings-types";
 import { getCheckPhonePromptTags } from "./checkphone-config";
 
 export const BUILTIN_PRESET_ID = "builtin_default_v1";
-export const BUILTIN_PRESET_VERSION = 264; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
+export const BUILTIN_PRESET_VERSION = 265; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
 
 export function createBuiltinPreset(): PresetConfig {
     const now = Date.now();
@@ -1337,11 +1337,18 @@ export function createBuiltinPreset(): PresetConfig {
                     "- emoji 段填一个最贴合该事项的表情符号（如 🏃 📚 🎬），想不到合适的就写“无”",
                     "- 开始时间和结束时间必须使用24小时制 HH:MM",
                     "- 作息时间不受限制，可以按{{char}}的生活方式安排早起、深夜甚至通宵的事项",
-                    "- 每一天最多 5 条日程，宁缺毋滥",
+                    "- 每一天最多 5 条日程，宁缺毋滥（外出行程期间见下方规则）",
                     "- 地点不确定时写“无”",
                     "- 星期几要与日期匹配",
                     "- 事项要具体自然，符合{{char}}近期生活节奏",
                     "- 应优先参考已有日程，避免无意义地推翻已经存在的安排",
+                    "",
+                    "外出行程规则：",
+                    "- 如果已有日程、记忆、世界书或近期事件显示{{char}}正处于出差、驻组拍摄、旅行等异地行程，行程覆盖的每一天都要按所在地安排，地点写具体的城市或场所",
+                    "- 外出期间每天的晚间也要写明落脚点（如酒店、住处），不要默认回到常住的家；除非事件明确写了返程日期，行程中途不要出现回家的安排",
+                    "- 外出期间不适用“宁缺毋滥”，每天至少写出当天的主要安排和晚间落脚点，不要整天留空",
+                    "- 如果本周已有日程或记忆表明行程会延续到下周，本周最后一天按行程中途处理，不要擅自安排返程",
+                    "- 没有任何外出迹象时，保持{{char}}平时的生活节奏，不要无故编造外出",
                     "",
                     "示例：",
                     "2026-03-16|周一|09:00|11:30|公司会议室|💼|部门周会",
