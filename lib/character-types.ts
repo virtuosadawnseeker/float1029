@@ -7,6 +7,8 @@ export type Character = {
   persona: string;       // 人设
   briefPersona?: string; // 简量版人设：注入到同世界有关系角色的「角色关系」marker，供对方了解 TA（防 OOC）
   briefPersonaUpdatedAt?: string; // 简介生成时间；早于 updatedAt 时编辑器提示「设定已更新，建议重新生成」
+  /** 公开身份（路人眼里的 TA）：填了才算公众人物。小红书路人帖会据此刷出粉丝/路人关于 TA 的内容；只写路人能知道的信息。 */
+  publicProfile?: string;
   wechatID?: string;     // 手机号格式的微信号
   personality?: string;    // 角色性格
   timeZone?: string;       // IANA 时区，例如 America/New_York；空值表示跟随系统时间
