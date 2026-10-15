@@ -1955,6 +1955,7 @@ function CharArchiveView({
   const [persona, setPersona] = useState(char.persona || "");
   const [personality, setPersonality] = useState(char.personality || "");
   const [briefPersona, setBriefPersona] = useState(char.briefPersona || "");
+  const [publicProfile, setPublicProfile] = useState(char.publicProfile || "");
   const [briefBusy, setBriefBusy] = useState(false);
   const [briefError, setBriefError] = useState("");
   const [timeZone, setTimeZone] = useState(char.timeZone || "");
@@ -2054,6 +2055,7 @@ function CharArchiveView({
     if (persona !== (char.persona || "")) return true;
     if (personality !== (char.personality || "")) return true;
     if (briefPersona !== (char.briefPersona || "")) return true;
+    if (publicProfile !== (char.publicProfile || "")) return true;
     if (timeZone !== (char.timeZone || "")) return true;
     if (avatar !== (char.avatar || null)) return true;
     if (polaroidStyle !== (char.polaroidStyle ?? 0)) return true;
@@ -2081,6 +2083,7 @@ function CharArchiveView({
       setPersona(char.persona || "");
       setPersonality(char.personality || "");
       setBriefPersona(char.briefPersona || "");
+      setPublicProfile(char.publicProfile || "");
       setBriefError("");
       setTimeZone(char.timeZone || "");
       setTimeZoneSearch(char.timeZone || "");
@@ -2161,6 +2164,7 @@ function CharArchiveView({
         persona,
         personality: personality.trim() || undefined,
         briefPersona: trimmedBrief || undefined,
+        publicProfile: publicProfile.trim() || undefined,
         // 简介变动才刷新时间戳；未动则保留原值（供「设定已更新」过期提示判断）
         briefPersonaUpdatedAt: trimmedBrief
           ? (trimmedBrief !== (char.briefPersona || "").trim() ? new Date().toISOString() : char.briefPersonaUpdatedAt)
@@ -2794,6 +2798,33 @@ function CharArchiveView({
                 />
               ) : (
                 <p className="char-archive-p whitespace-pre-wrap break-words">{briefPersona}</p>
+              )}
+            </div>
+          )}
+
+          {/* 公开身份 — 路人眼里的 TA，用于小红书路人内容流 */}
+          {(isEditing || publicProfile.trim()) && (
+            <div className="char-log-entry mb-4 border-t border-dashed border-[#999] pt-3">
+              <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                <span className="char-log-entry-header !mb-0">PUBLIC PROFILE / 公开身份</span>
+              </div>
+              <p className="ts-10 opacity-60 mt-1">
+                只填路人能知道的信息（职业、代表作、粉丝称呼、公开风评）。填了之后，TA 就是公众人物：小红书路人帖会刷出粉丝、路人聊 TA，还会结合 TA 当天的公开日程（直播、拍摄、红毯等）。不要写私人关系和秘密。留空则不会被路人提起。
+              </p>
+              {isEditing ? (
+                <AutoResizingTextarea
+                  value={publicProfile}
+                  onChange={setPublicProfile}
+                  placeholder="例：当红男演员，代表作《xxx》《xxx》，粉丝自称“xx”，演技口碑好、私下低调"
+                  minHeight={60}
+                  style={{
+                    width: "100%", background: "color-mix(in srgb, var(--c-input) 50%, transparent)",
+                    border: "1px dashed #666", padding: 8, fontSize: "calc(12px*var(--app-text-scale,1))", lineHeight: 1.5,
+                    fontFamily: "inherit", marginTop: 8
+                  }}
+                />
+              ) : (
+                <p className="char-archive-p whitespace-pre-wrap break-words">{publicProfile}</p>
               )}
             </div>
           )}
