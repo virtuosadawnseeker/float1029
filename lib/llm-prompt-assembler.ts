@@ -17,6 +17,7 @@ import { formatCharacterRelationsForPrompt } from "./character-world-storage";
 import { buildCharacterTimeContext, buildGroupTimeContext, type CharacterTimeContext } from "./character-time";
 import { formatShoppingPaymentRequestHistory } from "./shopping-payment-request";
 import { formatTakeoutForPrompt } from "./takeout";
+import { formatAllowanceCardForPrompt, formatAllowanceEventForPrompt } from "./allowance-cards";
 import { buildGroupAdminBracketText } from "./group-admin";
 
 export type LLMMessageRole = "system" | "user" | "assistant" | "tool";
@@ -1150,6 +1151,10 @@ export function formatRichMediaForHistory(msg: ChatMessage, userName: string, ch
         }
         case "takeout":
             return formatTakeoutForPrompt(d, userName);
+        case "allowance_card":
+            return formatAllowanceCardForPrompt(d);
+        case "allowance_event":
+            return formatAllowanceEventForPrompt(d, userName, msg.content);
         case "gift": {
             const giftName = d?.giftName || d?.label || "礼物";
             return isGroup && d?.recipientName

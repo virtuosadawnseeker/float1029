@@ -46,10 +46,15 @@ import {
   type ShoppingPaymentStatus,
 } from "@/lib/shopping-payment-request";
 import { createDefaultShoppingState, loadShoppingState, saveShoppingState, SHOPPING_STATE_UPDATED_EVENT } from "@/lib/shopping-storage";
+import { notifyAllowanceUsed } from "@/lib/allowance-cards";
 import type { ShoppingCartItem, ShoppingCategory, ShoppingOrder, ShoppingProduct, ShoppingShippingEvent, ShoppingState } from "@/lib/shopping-types";
 import {
   formatWalletAmount,
+  getAllowanceCardLabel,
+  getAllowanceRemaining,
   getWalletBalance,
+  isAllowanceCardId,
+  listActiveAllowanceCards,
   loadWalletState,
   payWithWalletAccount,
   WALLET_BALANCE_ACCOUNT_ID,
@@ -488,7 +493,9 @@ export function ShoppingApp({ onClose, visible = true, onIdle, onBusyChange }: S
     const syncWallet = () => {
       const next = loadWalletState();
       setWalletState(next);
-      setSelectedPaymentSourceId(current => current === WALLET_BALANCE_ACCOUNT_ID || next.cards.some(card => card.id === current)
+      setSelectedPaymentSourceId(current => current === WALLET_BALANCE_ACCOUNT_ID
+        || next.cards.some(card => card.id === current)
+        || listActiveAllowanceCards(next).some(card => card.id === current)
         ? current
         : WALLET_BALANCE_ACCOUNT_ID);
     };
@@ -528,6 +535,18 @@ export function ShoppingApp({ onClose, visible = true, onIdle, onBusyChange }: S
           balance: getWalletBalance(walletState),
           description: "红包、转账也默认使用余额",
         }
+      : isAllowanceCardId(selectedPaymentSourceId)
+      ? (() => {
+          const allowance = listActiveAllowanceCards(walletState).find(item => item.id === selectedPaymentSourceId);
+          return allowance
+            ? {
+                id: allowance.id,
+                title: getAllowanceCardLabel(allowance),
+                balance: getAllowanceRemaining(allowance),
+                description: "本月剩余额度",
+              }
+            : null;
+        })()
       : (() => {
           const card = walletState.cards.find(item => item.id === selectedPaymentSourceId) ?? walletState.cards[0];
           return card
@@ -943,10 +962,17 @@ export function ShoppingApp({ onClose, visible = true, onIdle, onBusyChange }: S
       return;
     }
     setWalletState(paymentResult.state);
+    if (isAllowanceCardId(paymentSource.id)) {
+      notifyAllowanceUsed({ cardId: paymentSource.id, amount: cartTotals.totalPayment, purpose: order.summary });
+    }
     const paidOrder: ShoppingOrder = {
       ...order,
       paymentCardId: paymentSource.id,
-      paymentCardLabel: paymentSource.id === WALLET_BALANCE_ACCOUNT_ID ? "余额支付" : `${paymentSource.title}（${paymentSource.description.replace(" · 银行卡", "")}）`,
+      paymentCardLabel: paymentSource.id === WALLET_BALANCE_ACCOUNT_ID
+        ? "余额支付"
+        : isAllowanceCardId(paymentSource.id)
+          ? paymentSource.title
+          : `${paymentSource.title}（${paymentSource.description.replace(" · 银行卡", "")}）`,
       paymentTransactionId: paymentResult.transaction.id,
       paidAt: paymentResult.transaction.createdAt,
     };
@@ -1898,6 +1924,13 @@ export function ShoppingApp({ onClose, visible = true, onIdle, onBusyChange }: S
                   description: `${getWalletCardDisplayNumber(card.maskedNumber)} · 银行卡`,
                   balance: card.balance,
                   icon: <WalletCards size={20} />,
+                })),
+                ...listActiveAllowanceCards(walletState).map(card => ({
+                  id: card.id,
+                  title: getAllowanceCardLabel(card),
+                  description: `每月额度 ${formatWalletAmount(card.monthlyLimit)}`,
+                  balance: getAllowanceRemaining(card),
+                  icon: <Heart size={20} />,
                 })),
               ].map(source => {
                 const active = selectedPaymentSource?.id === source.id;

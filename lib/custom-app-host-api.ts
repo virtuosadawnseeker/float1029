@@ -72,6 +72,7 @@ import {
   formatWalletAmount,
   getWalletBalance,
   getWalletTotalBalance,
+  isAllowanceCardId,
   loadWalletState,
   payWithWalletAccount,
   WALLET_BALANCE_ACCOUNT_ID,
@@ -2269,8 +2270,12 @@ export function getWalletSnapshot(): Record<string, unknown> {
 
 export function payCustomAppWallet(app: InstalledCustomApp, record: Record<string, unknown>): Record<string, unknown> {
   const amount = numberAmount(record.amount);
+  const accountId = cleanText(record.accountId ?? record.cardId, 120) || WALLET_BALANCE_ACCOUNT_ID;
+  if (isAllowanceCardId(accountId)) {
+    return { ok: false, error: "亲属卡 / 亲密付不能在第三方应用里使用。", wallet: getWalletSnapshot() };
+  }
   const result = payWithWalletAccount({
-    accountId: cleanText(record.accountId ?? record.cardId, 120) || WALLET_BALANCE_ACCOUNT_ID,
+    accountId,
     amount,
     title: cleanText(record.title, 120) || app.name,
     detail: cleanText(record.detail ?? record.description, 400) || `来自「${app.name}」的付款`,

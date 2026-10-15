@@ -7,8 +7,8 @@
 import { stripTextToolDirectives } from "./text-tool-protocol";
 
 const TOOL_DIRECTIVE_START_RE = /\[[^\]\r\n]*?(?:执行动作|获取指令|获取工具|工具调用)\s*[:：]/;
-const MEDIA_DIRECTIVE_RE = /\[(?:代付请求|音乐分享|语音条|表情包|照片|红包|转账|位置|名片|音乐|礼物)\s*[:：][^\]\r\n]*\]/g;
-const INCOMPLETE_MEDIA_DIRECTIVE_RE = /\[(?:代付请求|音乐分享|语音条|表情包|照片|红包|转账|位置|名片|音乐|礼物)\s*[:：][^\]\r\n]*$/g;
+const MEDIA_DIRECTIVE_RE = /\[(?:代付请求|音乐分享|语音条|表情包|照片|红包|转账|亲属卡|亲密付|位置|名片|音乐|礼物)\s*[:：][^\]\r\n]*\]/g;
+const INCOMPLETE_MEDIA_DIRECTIVE_RE = /\[(?:代付请求|音乐分享|语音条|表情包|照片|红包|转账|亲属卡|亲密付|位置|名片|音乐|礼物)\s*[:：][^\]\r\n]*$/g;
 
 /** 按标签名剥掉 <tag>…</tag> 整块（含未闭合的 <tag>…直到结尾），供思维链/摘要类
  *  配置型标签在预览阶段隐藏。幂等：已剥净的文本重复调用无变化。 */

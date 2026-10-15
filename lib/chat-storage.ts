@@ -111,6 +111,7 @@ export type ChatMessage = {
         | "xiaohongshu_note_share"
         | "gift"
         | "takeout"
+        | "allowance_card" | "allowance_event"
         | "contact_card"
         | "app_card"
         | "tool_notice"
@@ -160,6 +161,11 @@ export type ChatMessage = {
         takeoutNote?: string;    // 外卖留言
         takeoutSentAt?: string;  // 下单时间
         takeoutEtaMinutes?: number; // 预计送达分钟数
+        allowanceKind?: "family" | "intimate"; // 亲属卡 / 亲密付（allowance_card、allowance_event 共用）
+        allowanceCardId?: string;  // 用户收下后对应的钱包额度卡 ID
+        allowanceEvent?: "accept" | "decline" | "use" | "close"; // 额度卡事件：收下/婉拒/刷卡/关闭
+        allowancePurpose?: string; // 刷卡用途（购物订单摘要等）
+        allowanceRemaining?: number; // 刷卡后本月剩余额度
         paymentRequestId?: string; // 代付请求 ID
         shoppingOrderId?: string;  // 代付关联购物订单 ID
         paymentRequestAmountLabel?: string; // 代付金额展示
@@ -348,8 +354,13 @@ export function getChatMessagePreview(msg: ChatMessage): string {
         return content ? `[系统指令] ${content}` : "[系统指令]";
     }
 
+    if (msg.mediaType === "allowance_card") {
+        return msg.mediaData?.allowanceKind === "intimate" ? "[亲密付]" : "[亲属卡]";
+    }
+
     // Action notifications: show natural language with user name → "你"
-    if (msg.mediaType === "accept_red_packet" || msg.mediaType === "decline_red_packet"
+    if (msg.mediaType === "allowance_event"
+        || msg.mediaType === "accept_red_packet" || msg.mediaType === "decline_red_packet"
         || msg.mediaType === "accept_transfer" || msg.mediaType === "decline_transfer"
         || msg.mediaType === "accept_payment_request" || msg.mediaType === "decline_payment_request"
         || msg.mediaType === "group_admin_notice") {
