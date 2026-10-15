@@ -208,6 +208,7 @@ export async function requestBackgroundChatReply(sessionId: string): Promise<{ o
     if (backgroundReplyFiringSet.has(sessionId)) return { ok: false, skipped: "already_running" };
     const session = loadChatSessions().find(s => s.id === sessionId);
     if (!session) return { ok: false, skipped: "missing_session" };
+    if (isBlockedSession(session)) return { ok: false, skipped: "blocked" };
 
     backgroundReplyFiringSet.add(sessionId);
     try {
@@ -282,6 +283,11 @@ type BackgroundCompletionRound = {
     rawResponseText?: string;
     reasoningText?: string;
 };
+
+/** 私聊已拉黑：角色的一切主动消息都停掉（这里不 import block-contact，避免循环依赖）。 */
+function isBlockedSession(session: { isGroup?: boolean; isBlacklisted?: boolean } | undefined): boolean {
+    return !!session && !session.isGroup && session.isBlacklisted === true;
+}
 
 async function generateBackgroundCompletionRounds(
     session: Parameters<typeof generateChatCompletion>[0],
@@ -396,7 +402,7 @@ function pollMenstrualPeriodCare(now: number) {
 
     const selectedIds = new Set(config.periodCareCharacterIds);
     const sessions = loadChatSessions()
-        .filter(session => !session.isGroup && selectedIds.has(session.contactId))
+        .filter(session => !session.isGroup && !isBlockedSession(session) && selectedIds.has(session.contactId))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const latestSessionByCharacter = new Map<string, (typeof sessions)[number]>();
     for (const session of sessions) {
@@ -433,6 +439,7 @@ async function fireFollowUp(sched: { sessionId: string; count: number; delaySec?
         const sessions = loadChatSessions();
         const session = sessions.find(s => s.id === sched.sessionId);
         if (!session) return;
+        if (isBlockedSession(session)) return; // 已拉黑：不再追问
 
         const latestMessages = loadChatMessages(session.id);
 
@@ -576,6 +583,7 @@ async function fireIdleReconnect(rule: IdleReconnectRule, lastUserAt: number) {
     try {
         const session = loadChatSessions().find(s => s.id === rule.sessionId);
         if (!session || session.isGroup || session.contactId !== rule.characterId) return;
+        if (isBlockedSession(session)) return;
 
         // 本地接手当前这次生成，先撤销服务端同规则排队任务；生成成功后才记连发次数。
         void cancelBailoutPrefix(`idle:${rule.id}:`);
@@ -637,6 +645,7 @@ async function fireTimedWake(sched: TimedWakeSchedule) {
         const sessions = loadChatSessions();
         const session = sessions.find(s => s.id === sched.sessionId);
         if (!session || session.contactId !== sched.characterId) return;
+        if (isBlockedSession(session)) return;
 
         const latestMessages = loadChatMessages(session.id);
         const elapsedMinutes = resolveTimedWakeElapsedMinutes(sched, latestMessages, Date.now());
@@ -704,6 +713,7 @@ async function fireMenstrualPeriodCare(input: {
         const sessions = loadChatSessions();
         const session = sessions.find(s => s.id === input.sessionId);
         if (!session || session.isGroup || session.contactId !== input.characterId) return;
+        if (isBlockedSession(session)) return;
         if (hasMenstrualPeriodCareTriggered(input.characterId, input.event.cycleKey)) return;
 
         const latestMessages = loadChatMessages(session.id);

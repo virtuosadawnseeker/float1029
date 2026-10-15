@@ -6,6 +6,7 @@
 import { isReadingDiscussMessage, isSystemInstructionMessage, loadChatSessions, loadChatMessages, type ChatMessage } from "./chat-storage";
 import { buildGroupAdminBracketText } from "./group-admin";
 import { formatTakeoutForPrompt } from "./takeout";
+import { formatBlockEventForPrompt } from "./block-event";
 import { formatAllowanceCardForPrompt, formatAllowanceEventForPrompt } from "./allowance-cards";
 import { loadMomentPosts, loadMomentComments } from "./moments-storage";
 import { loadCharacters } from "./character-storage";
@@ -242,6 +243,7 @@ export function loadNativeTimeline(
                 else if (msg.mediaType === "takeout") content = formatTakeoutForPrompt(msg.mediaData, userName);
                 else if (msg.mediaType === "allowance_card") content = formatAllowanceCardForPrompt(msg.mediaData);
                 else if (msg.mediaType === "allowance_event") content = formatAllowanceEventForPrompt(msg.mediaData, userName, msg.content);
+                else if (msg.mediaType === "block_event") content = formatBlockEventForPrompt(msg.mediaData, userName, msg.content);
                 else if (msg.mediaType === "gift") {
                     const giftName = msg.mediaData?.giftName || msg.mediaData?.label || "礼物";
                     content = msg.mediaData?.recipientName
@@ -348,6 +350,7 @@ export function loadNativeTimeline(
                 else if (msg.mediaType === "takeout") content = formatTakeoutForPrompt(msg.mediaData, userName);
                 else if (msg.mediaType === "allowance_card") content = formatAllowanceCardForPrompt(msg.mediaData);
                 else if (msg.mediaType === "allowance_event") content = formatAllowanceEventForPrompt(msg.mediaData, userName, msg.content);
+                else if (msg.mediaType === "block_event") content = formatBlockEventForPrompt(msg.mediaData, userName, msg.content);
                 else if (msg.mediaType === "gift") {
                     const giftName = msg.mediaData?.giftName || msg.mediaData?.label || "礼物";
                     content = msg.mediaData?.recipientName

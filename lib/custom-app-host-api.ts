@@ -67,6 +67,7 @@ import { createSTTSession } from "./stt-service";
 import { generateImageFromConfiguredApi } from "./image-generation-service";
 import { getThemeAssetDataUrl, saveThemeAssetFromBlob } from "./theme-storage";
 import type { ThemeAssetType } from "./theme-types";
+import { setCharacterBlocked } from "./block-contact";
 import { synthesizeSpeech } from "./tts-service";
 import {
   formatWalletAmount,
@@ -2231,10 +2232,13 @@ export function setCustomAppChatContactState(record: Record<string, unknown>): {
   const characterId = cleanText(record.characterId, 160);
   if (!characterId) throw new Error("chat.setContactState 缺少 characterId。");
   const session = ensureCharacterSession(characterId);
+  // 拉黑走统一入口：会锁输入、停主动消息，并给角色落感知通知
+  if (record.isBlacklisted !== undefined || record.blocked !== undefined) {
+    setCharacterBlocked(session.id, record.isBlacklisted === true || record.blocked === true);
+  }
   const sessions = loadChatSessions();
   const next = sessions.map(item => item.id === session.id ? {
     ...item,
-    ...(record.isBlacklisted !== undefined || record.blocked !== undefined ? { isBlacklisted: record.isBlacklisted === true || record.blocked === true } : {}),
     ...(record.isMuted !== undefined || record.muted !== undefined ? { isMuted: record.isMuted === true || record.muted === true } : {}),
   } : item);
   saveChatSessions(next);

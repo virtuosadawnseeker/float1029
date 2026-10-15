@@ -112,6 +112,7 @@ export type ChatMessage = {
         | "gift"
         | "takeout"
         | "allowance_card" | "allowance_event"
+        | "block_event"
         | "contact_card"
         | "app_card"
         | "tool_notice"
@@ -161,6 +162,7 @@ export type ChatMessage = {
         takeoutNote?: string;    // 外卖留言
         takeoutSentAt?: string;  // 下单时间
         takeoutEtaMinutes?: number; // 预计送达分钟数
+        blockEvent?: "block" | "unblock"; // 拉黑 / 解除拉黑（block_event）
         allowanceKind?: "family" | "intimate"; // 亲属卡 / 亲密付（allowance_card、allowance_event 共用）
         allowanceCardId?: string;  // 用户收下后对应的钱包额度卡 ID
         allowanceEvent?: "accept" | "decline" | "use" | "close"; // 额度卡事件：收下/婉拒/刷卡/关闭
@@ -359,7 +361,7 @@ export function getChatMessagePreview(msg: ChatMessage): string {
     }
 
     // Action notifications: show natural language with user name → "你"
-    if (msg.mediaType === "allowance_event"
+    if (msg.mediaType === "allowance_event" || msg.mediaType === "block_event"
         || msg.mediaType === "accept_red_packet" || msg.mediaType === "decline_red_packet"
         || msg.mediaType === "accept_transfer" || msg.mediaType === "decline_transfer"
         || msg.mediaType === "accept_payment_request" || msg.mediaType === "decline_payment_request"

@@ -17,6 +17,7 @@ import { formatCharacterRelationsForPrompt } from "./character-world-storage";
 import { buildCharacterTimeContext, buildGroupTimeContext, type CharacterTimeContext } from "./character-time";
 import { formatShoppingPaymentRequestHistory } from "./shopping-payment-request";
 import { formatTakeoutForPrompt } from "./takeout";
+import { formatBlockEventForPrompt } from "./block-event";
 import { formatAllowanceCardForPrompt, formatAllowanceEventForPrompt } from "./allowance-cards";
 import { buildGroupAdminBracketText } from "./group-admin";
 
@@ -1153,6 +1154,8 @@ export function formatRichMediaForHistory(msg: ChatMessage, userName: string, ch
             return formatTakeoutForPrompt(d, userName);
         case "allowance_card":
             return formatAllowanceCardForPrompt(d);
+        case "block_event":
+            return formatBlockEventForPrompt(d, userName, msg.content);
         case "allowance_event":
             return formatAllowanceEventForPrompt(d, userName, msg.content);
         case "gift": {
