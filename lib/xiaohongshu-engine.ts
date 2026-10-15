@@ -1,7 +1,7 @@
 import { getChatImageFromIndexedDB } from "./chat-asset-storage";
 import { ChatEngineError, previewMessagesForApi, sendLLMRequest } from "./chat-engine";
 import { loadCharacters } from "./character-storage";
-import { buildPublicFigureFeedContext } from "./xiaohongshu-public-figures";
+import { buildCelebrityCommentRules, buildPublicFigureFeedContext } from "./xiaohongshu-public-figures";
 import type { Character } from "./character-types";
 import { assemblePromptPayload, type AssemblerInput, type LLMContentPart, type LLMMessage } from "./llm-prompt-assembler";
 import { DEFAULT_XIAOHONGSHU_BILINGUAL_PROMPT, resolveBilingualPrompt } from "./bilingual-prompt-defaults";
@@ -1228,12 +1228,16 @@ export async function generateXiaohongshuCharacterActivity(
   settings?: XiaohongshuSettings,
 ): Promise<ParsedXiaohongshuCharacterActivity | null> {
   const userNames = getUserXiaohongshuNamesFromNotes(notes);
+  const celebrityRules = buildCelebrityCommentRules(characterId);
+  const feedText = celebrityRules
+    ? `${formatXiaohongshuFeedContext(notes)}\n\n${celebrityRules}`
+    : formatXiaohongshuFeedContext(notes);
   const context = userNames.length > 0
     ? prependXiaohongshuUserIdentityHint(
-        formatXiaohongshuFeedContext(notes),
+        feedText,
         buildXiaohongshuUserIdentityHint({ characterId, xiaohongshuNames: userNames }),
       )
-    : formatXiaohongshuFeedContext(notes);
+    : feedText;
   const resolved = await resolveCharacterAssemblerInput(characterId, ["xiaohongshu", "activity"], {
     feedContext: context,
   }, settings);
