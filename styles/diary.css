@@ -1248,6 +1248,38 @@
   flex: 0 0 auto;
 }
 
+.diary-entry-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(42, 39, 34, 0.2);
+}
+
+.diary-entry-detail-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(42, 39, 34, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  color: rgba(42, 39, 34, 0.78);
+  font-size: calc(13px*var(--app-text-scale,1));
+  font-weight: 600;
+}
+
+.diary-entry-detail-actions button.is-danger {
+  color: #b3392f;
+  border-color: rgba(179, 57, 47, 0.35);
+}
+
+.diary-entry-detail-actions button:disabled {
+  opacity: 0.45;
+}
+
 .diary-entry-paragraph,
 .diary-entry-quote,
 .diary-entry-correction {
@@ -3673,12 +3705,71 @@
   overflow: hidden;
 }
 
-.diary-shelf .diary-book:nth-child(2n) {
+.diary-shelf .diary-book-slot:nth-child(2n) .diary-book {
   --book-tilt: 0.5deg;
 }
 
-.diary-shelf .diary-book:nth-child(3n) {
+.diary-shelf .diary-book-slot:nth-child(3n) .diary-book {
   --book-tilt: -0.25deg;
+}
+
+.diary-book-slot {
+  position: relative;
+  min-width: 0;
+}
+
+.diary-shelf-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 24px 0;
+}
+
+.diary-shelf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(42, 39, 34, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  color: rgba(42, 39, 34, 0.7);
+  font-size: calc(12px*var(--app-text-scale,1));
+  font-weight: 600;
+}
+
+.diary-shelf-chip.is-active {
+  background: rgba(42, 39, 34, 0.82);
+  color: #fff;
+}
+
+.diary-book-move {
+  position: absolute;
+  left: 50%;
+  bottom: -14px;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+  transform: translateX(-50%);
+}
+
+.diary-book-move button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(42, 39, 34, 0.16);
+  border-radius: 999px;
+  background: #fff;
+  color: rgba(42, 39, 34, 0.8);
+  box-shadow: 0 3px 8px rgba(56, 46, 34, 0.16);
+}
+
+.diary-book-move button:disabled {
+  opacity: 0.3;
 }
 
 .diary-book:active {

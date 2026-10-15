@@ -11,11 +11,13 @@ import {
 
 const ENTRIES_KEY = "ai_phone_diary_entries_v1";
 const TIMER_KEY = "ai_phone_diary_entry_timer_settings_v1";
+const BOOK_ORDER_KEY = "ai_phone_diary_book_order_v1";
 export const DIARY_ENTRY_FONT_ASSET_KEY = "ai_phone_diary_entry_font_asset_v1";
 export const DIARY_ENTRY_FONT_SCALE_KEY = "ai_phone_diary_entry_font_scale_v1";
 
 registerKvMigration(ENTRIES_KEY);
 registerKvMigration(TIMER_KEY);
+registerKvMigration(BOOK_ORDER_KEY);
 registerKvMigration(DIARY_ENTRY_FONT_ASSET_KEY);
 registerKvMigration(DIARY_ENTRY_FONT_SCALE_KEY);
 
@@ -247,6 +249,43 @@ export function createDiaryEntry(input: DiaryEntryInput): DiaryEntry {
   };
   saveDiaryEntries([entry, ...loadDiaryEntries()]);
   return entry;
+}
+
+/** 重写：用新内容替换旧日记，保留 id 和创建时间（排序位置、日期不变）。找不到旧日记时返回 null。 */
+export function replaceDiaryEntry(id: string, input: DiaryEntryInput): DiaryEntry | null {
+  const all = loadDiaryEntries();
+  const old = all.find(entry => entry.id === id);
+  if (!old) return null;
+  const now = new Date().toISOString();
+  const body = cleanMultilineText(input.body, 6000);
+  const next: DiaryEntry = {
+    ...old,
+    title: cleanText(input.title, 80) || body.slice(0, 20) || "未命名日记",
+    mood: cleanText(input.mood, 60),
+    weather: cleanText(input.weather, 60),
+    tags: normalizeTags(input.tags),
+    body,
+    blocks: normalizeBlocks(input.blocks, body),
+    updatedAt: now,
+  };
+  saveDiaryEntries(all.map(entry => entry.id === id ? next : entry));
+  return next;
+}
+
+/** 书架自定义顺序（characterId 列表）。没排过序的书按默认顺序（最近写的在前）排在最前面。 */
+export function loadDiaryBookOrder(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(kvGet(BOOK_ORDER_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveDiaryBookOrder(order: string[]): void {
+  if (typeof window === "undefined") return;
+  kvSet(BOOK_ORDER_KEY, JSON.stringify(Array.from(new Set(order))));
 }
 
 export function deleteDiaryEntry(id: string): void {
