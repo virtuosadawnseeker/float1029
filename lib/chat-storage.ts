@@ -110,6 +110,7 @@ export type ChatMessage = {
         | "music" | "music_share" | "music_notify" | "music_not_found"
         | "xiaohongshu_note_share"
         | "gift"
+        | "takeout"
         | "contact_card"
         | "app_card"
         | "tool_notice"
@@ -154,6 +155,11 @@ export type ChatMessage = {
         giftTone?: "ivory" | "mist" | "blush" | "graphite";
         giftDeliveredAt?: string;// 到货时间
         giftSentAt?: string;     // 送出时间
+        takeoutShop?: string;    // 外卖店名
+        takeoutItems?: string;   // 外卖商品
+        takeoutNote?: string;    // 外卖留言
+        takeoutSentAt?: string;  // 下单时间
+        takeoutEtaMinutes?: number; // 预计送达分钟数
         paymentRequestId?: string; // 代付请求 ID
         shoppingOrderId?: string;  // 代付关联购物订单 ID
         paymentRequestAmountLabel?: string; // 代付金额展示
@@ -299,6 +305,7 @@ const MEDIA_PREVIEW_MAP: Record<string, string> = {
     red_packet: "[红包]", transfer: "[转账]", location: "[位置]",
     poke: "[拍了拍你]", sticker: "[表情]", quote: "[引用]", dice: "[掷骰子]",
     gift: "[礼物]",
+    takeout: "[外卖]",
     contact_card: "[名片]",
     payment_request: "[代付请求]",
     music: "[音乐]",
