@@ -1,5 +1,5 @@
 import { kvGet, kvSet, registerKvMigration } from "./kv-db";
-import type { WalletAccountType, WalletCard, WalletPaymentInput, WalletPaymentResult, WalletState, WalletTransaction } from "./wallet-types";
+import type { AllowanceCard, AllowanceCardKind, WalletAccountType, WalletCard, WalletPaymentInput, WalletPaymentResult, WalletState, WalletTransaction } from "./wallet-types";
 
 const WALLET_STATE_KEY = "ai_phone_wallet_state_v1";
 const LEGACY_DEFAULT_WALLET_CARD_ID = "wallet_default_balance_card";
@@ -7,6 +7,8 @@ const DEFAULT_WALLET_BANK_CARD_ID = "wallet_default_bank_card";
 const DEFAULT_WALLET_BALANCE = 10000;
 
 export const WALLET_BALANCE_ACCOUNT_ID = "wallet_balance_account";
+/** 额度卡（亲属卡 / 亲密付）的账户 ID 前缀 */
+export const ALLOWANCE_CARD_ID_PREFIX = "allowance_card_";
 export const WALLET_UPDATED_EVENT = "wallet-state-updated";
 
 registerKvMigration(WALLET_STATE_KEY);
@@ -96,7 +98,7 @@ function normalizeTransaction(value: unknown): WalletTransaction | null {
   return {
     id,
     cardId,
-    accountType: rawAccountType === "card" || rawAccountType === "balance" ? rawAccountType : getAccountType(cardId),
+    accountType: rawAccountType === "card" || rawAccountType === "balance" || rawAccountType === "allowance" ? rawAccountType : getAccountType(cardId),
     title,
     amount: normalizeSignedMoney(record.amount),
     kind,
@@ -105,6 +107,34 @@ function normalizeTransaction(value: unknown): WalletTransaction | null {
     detail: cleanText(record.detail, 400),
     balanceAfter: normalizeMoney(record.balanceAfter),
     relatedOrderId: cleanText(record.relatedOrderId, 120) || undefined,
+  };
+}
+
+export function getAllowanceMonthKey(date: Date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function normalizeAllowanceCard(value: unknown): AllowanceCard | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = cleanText(record.id, 120);
+  const issuerId = cleanText(record.issuerId, 120);
+  if (!id || !issuerId) return null;
+  const now = new Date().toISOString();
+  return {
+    id,
+    kind: record.kind === "intimate" ? "intimate" : "family",
+    issuerId,
+    issuerName: cleanText(record.issuerName, 80) || "TA",
+    monthlyLimit: normalizeMoney(record.monthlyLimit),
+    usedAmount: normalizeMoney(record.usedAmount),
+    usedMonth: cleanText(record.usedMonth, 12),
+    status: record.status === "closed" ? "closed" : "active",
+    note: cleanText(record.note, 240),
+    sourceMessageId: cleanText(record.sourceMessageId, 120) || undefined,
+    sessionId: cleanText(record.sessionId, 120) || undefined,
+    createdAt: cleanText(record.createdAt, 80) || now,
+    updatedAt: cleanText(record.updatedAt, 80) || now,
   };
 }
 
@@ -119,6 +149,10 @@ function normalizeWalletState(state: WalletState): WalletState {
       isDefault: card.id === defaultCardId,
       balance: normalizeMoney(card.balance),
     })),
+    allowanceCards: (state.allowanceCards ?? [])
+      .map(normalizeAllowanceCard)
+      .filter((card): card is AllowanceCard => Boolean(card))
+      .slice(0, 50),
     transactions: state.transactions.slice(0, 300),
     defaultCardId,
     updatedAt: state.updatedAt || now,
@@ -131,6 +165,7 @@ export function createDefaultWalletState(): WalletState {
   return {
     balance: DEFAULT_WALLET_BALANCE,
     cards: [card],
+    allowanceCards: [],
     transactions: [{
       id: "wallet_initial_balance",
       cardId: WALLET_BALANCE_ACCOUNT_ID,
@@ -164,9 +199,13 @@ function migrateLegacyParsedState(parsed: Record<string, unknown>): WalletState 
     ? parsed.transactions.map(normalizeTransaction).filter((transaction): transaction is WalletTransaction => Boolean(transaction))
     : [];
   const defaultCardId = cleanText(parsed.defaultCardId, 120);
+  const allowanceCards = Array.isArray(parsed.allowanceCards)
+    ? parsed.allowanceCards.map(normalizeAllowanceCard).filter((card): card is AllowanceCard => Boolean(card))
+    : [];
   return normalizeWalletState({
     balance,
     cards: normalizedCards,
+    allowanceCards,
     transactions,
     defaultCardId: normalizedCards.some(card => card.id === defaultCardId) ? defaultCardId : normalizedCards[0].id,
     updatedAt: cleanText(parsed.updatedAt, 80) || now,
@@ -482,6 +521,120 @@ export function setWalletCardBalance(
   return { ok: true, state: next, transaction };
 }
 
+// ── 额度卡：亲属卡 / 亲密付 ───────────────────────────
+
+export function getAllowanceKindLabel(kind: AllowanceCardKind): string {
+  return kind === "intimate" ? "亲密付" : "亲属卡";
+}
+
+/** 例如「顾辞的亲属卡」 */
+export function getAllowanceCardLabel(card: Pick<AllowanceCard, "kind" | "issuerName">): string {
+  return `${card.issuerName}的${getAllowanceKindLabel(card.kind)}`;
+}
+
+/** 这个月已经用掉的额度；月份变了自动按 0 计算（每月 1 号清零）。 */
+export function getAllowanceUsed(card: AllowanceCard, now: Date = new Date()): number {
+  return card.usedMonth === getAllowanceMonthKey(now) ? normalizeMoney(card.usedAmount) : 0;
+}
+
+/** 这个月还剩多少额度；已关闭的卡为 0。 */
+export function getAllowanceRemaining(card: AllowanceCard, now: Date = new Date()): number {
+  if (card.status !== "active") return 0;
+  return normalizeMoney(card.monthlyLimit - getAllowanceUsed(card, now));
+}
+
+export function listActiveAllowanceCards(state: WalletState): AllowanceCard[] {
+  return (state.allowanceCards ?? []).filter(card => card.status === "active");
+}
+
+export function isAllowanceCardId(accountId: string | undefined): boolean {
+  return Boolean(accountId && accountId.startsWith(ALLOWANCE_CARD_ID_PREFIX));
+}
+
+export function findAllowanceCardBySourceMessage(state: WalletState, messageId: string): AllowanceCard | undefined {
+  if (!messageId) return undefined;
+  return (state.allowanceCards ?? []).find(card => card.sourceMessageId === messageId);
+}
+
+/**
+ * 用户收下角色开的亲属卡 / 亲密付。
+ * 同一个角色、同一种卡只保留一张生效的：再次收下会更新额度（已用金额保留），而不是多出一张。
+ * 同一条聊天卡片重复点击不会重复开卡。
+ */
+export function activateAllowanceCard(input: {
+  kind: AllowanceCardKind;
+  issuerId: string;
+  issuerName: string;
+  monthlyLimit: number;
+  note?: string;
+  sourceMessageId?: string;
+  sessionId?: string;
+}): { ok: boolean; state: WalletState; card?: AllowanceCard; error?: string } {
+  const current = loadWalletState();
+  const limit = normalizeMoney(input.monthlyLimit);
+  if (limit <= 0) return { ok: false, state: current, error: "额度需要大于 0。" };
+  const issuerId = cleanText(input.issuerId, 120);
+  if (!issuerId) return { ok: false, state: current, error: "找不到开卡人。" };
+  const existingCards = current.allowanceCards ?? [];
+
+  const sameSource = input.sourceMessageId
+    ? existingCards.find(card => card.sourceMessageId === input.sourceMessageId)
+    : undefined;
+  if (sameSource) return { ok: true, state: current, card: sameSource };
+
+  const now = new Date().toISOString();
+  const sameIssuer = existingCards.find(card => card.status === "active" && card.issuerId === issuerId && card.kind === input.kind);
+  if (sameIssuer) {
+    const updated: AllowanceCard = {
+      ...sameIssuer,
+      issuerName: cleanText(input.issuerName, 80) || sameIssuer.issuerName,
+      monthlyLimit: limit,
+      note: cleanText(input.note, 240) || sameIssuer.note,
+      sourceMessageId: input.sourceMessageId || sameIssuer.sourceMessageId,
+      sessionId: input.sessionId || sameIssuer.sessionId,
+      updatedAt: now,
+    };
+    const next = saveWalletState({
+      ...current,
+      allowanceCards: existingCards.map(card => card.id === updated.id ? updated : card),
+    });
+    return { ok: true, state: next, card: updated };
+  }
+
+  const card: AllowanceCard = {
+    id: generateWalletId(ALLOWANCE_CARD_ID_PREFIX.replace(/_$/, "")),
+    kind: input.kind,
+    issuerId,
+    issuerName: cleanText(input.issuerName, 80) || "TA",
+    monthlyLimit: limit,
+    usedAmount: 0,
+    usedMonth: getAllowanceMonthKey(),
+    status: "active",
+    note: cleanText(input.note, 240),
+    sourceMessageId: input.sourceMessageId || undefined,
+    sessionId: input.sessionId || undefined,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const next = saveWalletState({ ...current, allowanceCards: [card, ...existingCards] });
+  return { ok: true, state: next, card };
+}
+
+/** 关闭一张额度卡（关闭后不能再付款，记录保留）。 */
+export function closeAllowanceCard(cardId: string): { ok: boolean; state: WalletState; card?: AllowanceCard; error?: string } {
+  const current = loadWalletState();
+  const existingCards = current.allowanceCards ?? [];
+  const target = existingCards.find(card => card.id === cardId);
+  if (!target) return { ok: false, state: current, error: "未找到这张卡。" };
+  if (target.status === "closed") return { ok: true, state: current, card: target };
+  const closed: AllowanceCard = { ...target, status: "closed", updatedAt: new Date().toISOString() };
+  const next = saveWalletState({
+    ...current,
+    allowanceCards: existingCards.map(card => card.id === cardId ? closed : card),
+  });
+  return { ok: true, state: next, card: closed };
+}
+
 export function creditWalletBalance(amount: number, title: string, detail: string, category = "余额"): WalletPaymentResult {
   const current = loadWalletState();
   const creditAmount = normalizeMoney(amount);
@@ -511,6 +664,39 @@ export function payWithWalletAccount(input: WalletPaymentInput): WalletPaymentRe
   if (paymentAmount <= 0) return { ok: false, state: current, error: "付款金额无效。" };
   const accountId = input.accountId || input.cardId || WALLET_BALANCE_ACCOUNT_ID;
   const now = new Date().toISOString();
+
+  const allowanceCard = (current.allowanceCards ?? []).find(item => item.id === accountId);
+  if (allowanceCard) {
+    const cardLabel = getAllowanceCardLabel(allowanceCard);
+    if (allowanceCard.status !== "active") {
+      return { ok: false, state: current, error: `${cardLabel}已关闭，无法付款。` };
+    }
+    const remaining = getAllowanceRemaining(allowanceCard);
+    if (remaining < paymentAmount) {
+      return { ok: false, state: current, error: `${cardLabel}本月剩余额度 ${formatWalletAmount(remaining)}，不够付这一笔。` };
+    }
+    const usedAfter = normalizeMoney(getAllowanceUsed(allowanceCard) + paymentAmount);
+    const remainingAfter = normalizeMoney(allowanceCard.monthlyLimit - usedAfter);
+    const transaction = createTransaction({
+      accountId: allowanceCard.id,
+      accountType: "allowance",
+      title: cleanText(input.title, 120) || `${cardLabel}付款`,
+      amount: -paymentAmount,
+      kind: "payment",
+      category: cleanText(input.category, 80) || "付款",
+      detail: `${cardLabel}：${cleanText(input.detail, 360) || "付款"}`,
+      balanceAfter: remainingAfter,
+      relatedOrderId: input.relatedOrderId,
+    });
+    const next = saveWalletState({
+      ...current,
+      allowanceCards: (current.allowanceCards ?? []).map(item => item.id === allowanceCard.id
+        ? { ...item, usedAmount: usedAfter, usedMonth: getAllowanceMonthKey(), updatedAt: now }
+        : item),
+      transactions: [transaction, ...current.transactions],
+    });
+    return { ok: true, state: next, transaction };
+  }
 
   if (isBalanceAccountId(accountId)) {
     if (normalizeMoney(current.balance) < paymentAmount) {

@@ -20,6 +20,8 @@ function humanizeSegment(segment: string): string {
     if (/语音/.test(kind)) return "[语音]";
     if (/红包/.test(kind)) return "[红包]";
     if (/转账/.test(kind)) return "[转账]";
+    if (/亲属卡/.test(kind)) return "[亲属卡]";
+    if (/亲密付/.test(kind)) return "[亲密付]";
     if (/位置/.test(kind)) return "[位置]";
     if (/拍一拍|拍了拍/.test(kind)) return "拍了拍你";
     if (/语音通话/.test(kind)) return "发起了语音通话";

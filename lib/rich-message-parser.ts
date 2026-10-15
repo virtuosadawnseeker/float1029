@@ -119,6 +119,20 @@ const RICH_PATTERNS: {
         }),
     },
     {
+        // 亲属卡 / 亲密付：[亲属卡:月额度:留言]、[亲密付:月额度:留言]（留言可省略）
+        regex: new RegExp(`\\[(亲属卡|亲密付)${C}(\\d+(?:\\.\\d+)?)(?:${C}([^\\]]*))?\\]`),
+        build: (m) => ({
+            content: "",
+            mediaType: "allowance_card" as const,
+            mediaData: {
+                amount: parseFloat(m[2]),
+                label: m[3]?.trim() || "",
+                allowanceKind: m[1] === "亲密付" ? "intimate" as const : "family" as const,
+                status: "pending" as const,
+            },
+        }),
+    },
+    {
         // 群聊赠礼：[礼物:商品名:收礼人]，兼容旧格式：[礼物:商品名:送给收礼人]
         regex: new RegExp(`\\[礼物${C}([^\\]：:]+)${C}(?:送给)?([^\\]]+)\\]`),
         build: (m) => {

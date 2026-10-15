@@ -5,12 +5,17 @@ import { ArrowDownToLine, ArrowUpFromLine, CreditCard, Pencil, Plus, Trash2, Wal
 
 import { ConfirmDialog } from "@/components/ui";
 import { PageShell } from "@/components/ui/page-shell";
+import { closeAllowanceCardAndNotify } from "@/lib/allowance-cards";
 import {
   adjustWalletCardAccount,
   createWalletCard,
   deleteWalletCard,
   formatWalletAmount,
+  getAllowanceCardLabel,
+  getAllowanceRemaining,
+  getAllowanceUsed,
   getWalletBalance,
+  listActiveAllowanceCards,
   loadWalletState,
   setWalletBalance,
   setWalletCardBalance,
@@ -128,6 +133,7 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
   const [newCardBalance, setNewCardBalance] = useState("0");
   const [newCardStyle, setNewCardStyle] = useState<WalletCardStyle>("graphite");
   const [deleteCardId, setDeleteCardId] = useState<string | null>(null);
+  const [closeAllowanceId, setCloseAllowanceId] = useState<string | null>(null);
   const [editScope, setEditScope] = useState<"balance" | "card" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
@@ -159,6 +165,7 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
     [transferCardId, wallet.cards],
   );
   const walletBalance = useMemo(() => getWalletBalance(wallet), [wallet]);
+  const allowanceCards = useMemo(() => listActiveAllowanceCards(wallet), [wallet]);
   const recentTransactions = useMemo(
     () => wallet.transactions.slice(0, 60),
     [wallet.transactions],
@@ -407,6 +414,42 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
           </div>
         </section>
 
+        {allowanceCards.length > 0 ? (
+          <section className="flex flex-col gap-3">
+            <div className="px-1">
+              <h2 className="ts-15 font-bold text-[var(--c-text-title)]">亲属卡 / 亲密付</h2>
+              <div className="ts-11 text-[var(--c-text)] opacity-60 mt-0.5">TA 们给你开的卡，只能在购物里使用；额度每月 1 号重置</div>
+            </div>
+            {allowanceCards.map(card => {
+              const remaining = getAllowanceRemaining(card);
+              const used = getAllowanceUsed(card);
+              const percent = card.monthlyLimit > 0 ? Math.min(100, Math.round((used / card.monthlyLimit) * 100)) : 0;
+              const isIntimate = card.kind === "intimate";
+              return (
+                <div key={card.id} className="rounded-2xl bg-[var(--c-card)] p-4 flex flex-col gap-3" style={{ boxShadow: "0 8px 24px rgba(0,0,0,0.025)" }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="ts-14 font-bold text-[var(--c-text-title)]">{getAllowanceCardLabel(card)}</div>
+                      {card.note ? <div className="ts-12 text-[var(--c-text)] opacity-65 mt-0.5 truncate">{card.note}</div> : null}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="ts-11 text-[var(--c-text)] opacity-60">本月剩余</div>
+                      <div className="ts-18 font-bold" style={{ color: isIntimate ? "#e0527a" : "#d9962f" }}>{formatWalletAmount(remaining)}</div>
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "color-mix(in srgb, var(--c-text-title) 8%, var(--c-card))" }}>
+                    <div className="h-full rounded-full" style={{ width: `${percent}%`, background: isIntimate ? "#e0527a" : "#d9962f" }} />
+                  </div>
+                  <div className="flex items-center justify-between ts-12 text-[var(--c-text)] opacity-70">
+                    <span>已用 {formatWalletAmount(used)} / 月额度 {formatWalletAmount(card.monthlyLimit)}</span>
+                    <button type="button" className="font-semibold opacity-100 text-[var(--c-text-title)]" onClick={() => setCloseAllowanceId(card.id)}>关闭</button>
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+        ) : null}
+
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between px-1">
             <h2 className="ts-15 font-bold text-[var(--c-text-title)]">银行卡</h2>
@@ -621,6 +664,23 @@ export function WalletPanel({ onBack }: WalletPanelProps) {
             <button type="button" onClick={handleAddCard} className="h-12 rounded-2xl text-white ts-14 font-bold" style={{ background: "var(--c-icon-active)" }}>添加银行卡</button>
           </div>
         </div>
+      ) : null}
+
+      {closeAllowanceId ? (
+        <ConfirmDialog
+          title="关闭这张卡？"
+          message="关闭后将无法再用它付款，并会通知开卡的角色。对方之后可以重新给你开。"
+          variant="danger"
+          confirmLabel="关闭"
+          cancelLabel="取消"
+          onConfirm={() => {
+            const result = closeAllowanceCardAndNotify(closeAllowanceId);
+            if (!result.ok) setError(result.error ?? "关闭失败。");
+            setCloseAllowanceId(null);
+            setWallet(loadWalletState());
+          }}
+          onCancel={() => setCloseAllowanceId(null)}
+        />
       ) : null}
 
       {deleteCardId ? (

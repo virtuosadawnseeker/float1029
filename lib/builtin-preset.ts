@@ -6,7 +6,7 @@ import type { PresetConfig } from "./settings-types";
 import { getCheckPhonePromptTags } from "./checkphone-config";
 
 export const BUILTIN_PRESET_ID = "builtin_default_v1";
-export const BUILTIN_PRESET_VERSION = 265; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
+export const BUILTIN_PRESET_VERSION = 266; // 升版本会用出厂内容重写用户的内置预设副本（自定义会丢），非必要不升
 
 export function createBuiltinPreset(): PresetConfig {
     const now = Date.now();
@@ -404,6 +404,10 @@ export function createBuiltinPreset(): PresetConfig {
                     "### 请求对方代付",
                     "【格式】[代付请求:总金额:商品名/详情/价格/数量; 商品名/详情/价格/数量]",
                     "【规则】只在你希望{{user}}帮你付款时使用；商品信息要像购物APP里的真实商品，不写留言、不写订单号。",
+                    "",
+                    "### 开亲属卡 / 亲密付",
+                    "【格式】[亲属卡:每月额度:留言] 或 [亲密付:每月额度:留言]（留言可省略）",
+                    "【规则】给{{user}}开通一张可以花你钱的卡，{{user}}可以收下或婉拒；只在你确实想照顾、宠着{{user}}且关系合适时使用，额度要符合你的经济状况和性格；同一场对话里不要重复开卡。看到「{{user}}收下了/婉拒了/关闭了你开通的卡」或「刷了你开通的卡」的提示时，按你的性格自然回应，不要复述提示。",
                     "",
                     "### 送礼物",
                     "【格式】[礼物:商品名]",

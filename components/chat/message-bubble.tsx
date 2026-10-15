@@ -27,6 +27,7 @@ import { hasCharacterReferenceImage } from "@/lib/image-generation-service";
 import { GeneratedImageErrorDialog } from "./generated-image-error-dialog";
 import { ScanPayCard } from "@/components/chat/scan-pay-card";
 import { payWithWalletBalance } from "@/lib/wallet-storage";
+import { acceptAllowanceCardMessage, declineAllowanceCardMessage } from "@/lib/allowance-cards";
 import { formatShoppingPaymentRequestHistory } from "@/lib/shopping-payment-request";
 import { toCustomAppIconId } from "@/lib/custom-app-types";
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
@@ -100,6 +101,8 @@ export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charNa
             return <GiftBubble msg={msg} />;
         case "takeout":
             return <TakeoutBubble msg={msg} />;
+        case "allowance_card":
+            return <AllowanceCardBubble msg={msg} charName={charName} />;
         case "contact_card":
             return <ContactCardBubble msg={msg} characterId={characterId} />;
         case "payment_request":
@@ -735,6 +738,56 @@ function TransferBubble({ msg, charName, userName, onShowDetail }: {
                 {isReceived && <span>已收款</span>}
                 {isDeclined && <span>已退回</span>}
             </div>
+        </div>
+    );
+}
+
+// ── Allowance Card (亲属卡 / 亲密付) ─────────────────────────────
+
+function AllowanceCardBubble({ msg, charName }: { msg: ChatMessage; charName?: string }) {
+    const d = msg.mediaData;
+    const [error, setError] = useState("");
+    const isIntimate = d?.allowanceKind === "intimate";
+    const kindLabel = isIntimate ? "亲密付" : "亲属卡";
+    const status = d?.status;
+    const isReceived = status === "received";
+    const isDeclined = status === "declined";
+    const isPending = !isReceived && !isDeclined;
+    const canAct = isPending && msg.role !== "user";
+    const sender = msg.senderName || d?.senderName || charName || "TA";
+    const gradient = isDeclined
+        ? "linear-gradient(135deg,#b8b8b8,#9a9a9a)"
+        : isIntimate
+            ? "linear-gradient(135deg,#f58aa5,#e0527a)"
+            : "linear-gradient(135deg,#f3c26b,#d9962f)";
+
+    const handle = (action: "accept" | "decline") => {
+        const result = action === "accept" ? acceptAllowanceCardMessage(msg) : declineAllowanceCardMessage(msg);
+        if (!result.ok) setError(result.error || "操作失败");
+        else setError("");
+    };
+
+    return (
+        <div className="w-[240px] rounded-xl overflow-hidden" style={{ background: "var(--c-card)" }}>
+            <div className="p-4" style={{ background: gradient, color: "#fff" }}>
+                <div className="ts-13 opacity-90">{sender}送你的{kindLabel}</div>
+                <div className="ts-24 font-bold mt-1">¥{Number(d?.amount ?? 0).toFixed(2)}</div>
+                <div className="ts-12 opacity-85 mt-0.5">每月额度{d?.label ? ` · ${d.label}` : ""}</div>
+            </div>
+            <div className="px-4 py-2 ts-12 flex items-center justify-between" style={{ color: "var(--c-text-secondary, #888)" }}>
+                {canAct ? (
+                    <div className="flex gap-2 w-full">
+                        <button type="button" className="flex-1 rounded-lg py-1.5 border border-current opacity-80" onClick={() => handle("decline")}>婉拒</button>
+                        <button type="button" className="flex-1 rounded-lg py-1.5 font-bold text-white" style={{ background: isIntimate ? "#e0527a" : "#d9962f" }} onClick={() => handle("accept")}>收下</button>
+                    </div>
+                ) : (
+                    <>
+                        <span>{kindLabel}</span>
+                        <span>{isReceived ? "已收下" : isDeclined ? "已婉拒" : "待对方收下"}</span>
+                    </>
+                )}
+            </div>
+            {error && <div className="px-4 pb-2 ts-12" style={{ color: "#d33" }}>{error}</div>}
         </div>
     );
 }

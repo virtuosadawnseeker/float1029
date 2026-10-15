@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, Fragment, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CHAT_CONTACT_BLOCK_CHANGED_EVENT, isSessionBlocked } from "@/lib/block-contact";
 import { ChatSession, ChatMessage, CHAT_APP_SETTINGS_UPDATED_EVENT, CHAT_INITIAL_VISIBLE_MESSAGE_COUNT, CHAT_LOAD_MORE_MESSAGE_COUNT, CHAT_REQUEST_REPLY_EVENT, loadChatAppSettings, loadChatMessages, loadChatContacts, loadChatSessions, saveChatSessions, pushChatMessage, updateChatMessage, deleteChatMessage, deleteChatMessagesFrom, deleteChatMessagesByIds, retractChatMessage, editChatMessage, updateMessageMediaData, replaceResponseBatchWithParts, replaceGroupResponseRound, isReadingDiscussMessage, isSystemInstructionMessage, createResponseBatchId, createResponseRoundId, getLatestStateValues, getLatestCharacterStateValues, compareChatMessages, isSessionStreamingEnabled } from "@/lib/chat-storage";
 import { cleanStreamText, splitStreamPreviewSegments, stripLiteralTexts, stripXmlTagBlocks } from "@/lib/stream-preview";
 import type { StateValue } from "@/lib/chat-storage";
@@ -99,7 +100,7 @@ function isCallSysMsg(msg: ChatMessage): boolean {
     return CALL_SYS_RE.test(msg.content);
 }
 /** Returns the effective UI role: call messages render as "system" regardless of stored role */
-const ACTION_MEDIA_TYPES = new Set(["poke", "accept_red_packet", "decline_red_packet", "accept_transfer", "decline_transfer", "accept_payment_request", "decline_payment_request", "group_admin_notice"]);
+const ACTION_MEDIA_TYPES = new Set(["poke", "accept_red_packet", "decline_red_packet", "accept_transfer", "decline_transfer", "accept_payment_request", "decline_payment_request", "group_admin_notice", "allowance_event", "block_event"]);
 // 拍一拍/群管理通知/通话留痕渲染成灰色系统小字，没有 💭 面板入口——
 // 状态栏/内心独白/状态值挂上去会被显示层吞掉，挂载时必须跳过它们
 function canCarryFoldedPanel(part: { content?: string; mediaType?: ChatMessage["mediaType"] }): boolean {
@@ -181,6 +182,7 @@ const CHAT_VISUAL_MEDIA_TYPES = new Set([
     "payment_request",
     "gift",
     "takeout",
+    "allowance_card",
     "contact_card",
     "image",
     "location",
@@ -230,6 +232,7 @@ const CHAT_MEDIA_BUBBLE_TYPES = new Set([
     "payment_request",
     "gift",
     "takeout",
+    "allowance_card",
     "contact_card",
     "image",
     "location",
@@ -608,6 +611,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     isGroup: boolean;
     isSpectator: boolean;
     muteUntilMs: number;
+    isBlocked: boolean;
     isGenerating: boolean;
     theaterMode: boolean;
     enterToSendEnabled: boolean;
@@ -639,6 +643,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
     isGroup,
     isSpectator,
     muteUntilMs,
+    isBlocked,
     isGenerating,
     theaterMode,
     enterToSendEnabled,
@@ -676,7 +681,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
         return () => window.clearInterval(timer);
     }, [muteUntilMs]);
     const muteRemainingMs = muteUntilMs > muteNowTick ? muteUntilMs - muteNowTick : 0;
-    const inputLocked = isSpectator || muteRemainingMs > 0;
+    const inputLocked = isSpectator || muteRemainingMs > 0 || isBlocked;
 
     const resetTextareaHeight = () => {
         if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -817,7 +822,7 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 className="chat-input-textarea"
                 disabled={inputLocked}
                 placeholder={inputLocked
-                    ? (isSpectator ? "围观中，你不在这个群里" : `禁言中，剩余${Math.ceil(muteRemainingMs / 60000)}分钟`)
+                    ? (isSpectator ? "围观中，你不在这个群里" : isBlocked ? "已拉黑，在聊天设置里解除拉黑后才能聊天" : `禁言中，剩余${Math.ceil(muteRemainingMs / 60000)}分钟`)
                     : (theaterMode ? "写下番外指令..." : undefined)}
             />
 
@@ -862,6 +867,8 @@ const ChatTextInputBar = memo(forwardRef<ChatTextInputHandle, {
                 {!isGenerating && (
                     <button
                         className="ui-bare-btn text-[var(--c-text)]"
+                        disabled={isBlocked}
+                        style={isBlocked ? { opacity: 0.35 } : undefined}
                         title={!inputLocked && inputText.trim() ? "发送输入框内容并触发回复" : "触发 AI 主动回复"}
                         onClick={() => {
                             const trimmed = inputText.trim();
@@ -1091,6 +1098,17 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         return chars.find(c => c.id === session.contactId) || null;
     });
     const [isGenerating, setIsGenerating] = useState(false);
+    // 拉黑状态：设置面板里切换后通过事件同步到这里
+    const [blockedContact, setBlockedContact] = useState(() => isSessionBlocked(session));
+    useEffect(() => {
+        setBlockedContact(isSessionBlocked(session));
+        const onChanged = (event: Event) => {
+            const detail = (event as CustomEvent<{ sessionId?: string; blocked?: boolean }>).detail;
+            if (detail?.sessionId === session.id) setBlockedContact(detail.blocked === true);
+        };
+        window.addEventListener(CHAT_CONTACT_BLOCK_CHANGED_EVENT, onChanged);
+        return () => window.removeEventListener(CHAT_CONTACT_BLOCK_CHANGED_EVENT, onChanged);
+    }, [session.id]); // eslint-disable-line react-hooks/exhaustive-deps
     const [offlineMode, setOfflineMode] = useState(false);
     const [theaterMode, setTheaterMode] = useState(() => kvGet(CHAT_THEATER_MODE_PREFIX + session.id) === "1");
     const [offlineTurns, setOfflineTurns] = useState<ChatOfflineTurn[]>([]);
@@ -6296,6 +6314,7 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
 	                isGroup={!!session.isGroup}
 	                isSpectator={!!session.isGroup && !!session.isSpectator}
 	                muteUntilMs={session.isGroup && session.groupMutes?.[GROUP_SELF_KEY] ? new Date(session.groupMutes[GROUP_SELF_KEY]).getTime() : 0}
+	                isBlocked={blockedContact}
 	                isGenerating={isGenerating}
 	                theaterMode={theaterMode}
 	                enterToSendEnabled={enterToSendEnabled}

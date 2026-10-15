@@ -44,6 +44,7 @@ import { downloadFile } from "@/lib/download-utils";
 import { getSchemes, saveScheme, deleteScheme, type CSSScheme } from "@/lib/css-scheme-storage";
 import { CustomStatusFrame } from "@/components/chat/custom-status-frame";
 import { KeyboardAutoSendDebounceItem } from "@/components/chat/keyboard-auto-send-debounce-item";
+import { isSessionBlocked, setCharacterBlocked } from "@/lib/block-contact";
 import { ChevronRight, Image as ImageIcon, Video, Mic, UserMinus, UserPlus, Users, Pin, MessageSquare, Search, AlertCircle, Code, Laptop, Trash2, Smile, Sparkles, X, Play, Upload, Download, Save, FolderOpen, type LucideIcon } from "lucide-react";
 import { BINDING_ACCENTS, CONTENT_APP_ACCENTS } from "@/lib/ui-accent-colors";
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
@@ -300,6 +301,7 @@ export function ChatSettingsPanel({
     const [videoBackground, setVideoBackground] = useState<string>(session.videoBackground || "");
     const [voiceBackground, setVoiceBackground] = useState<string>(session.voiceBackground || "");
     const [isPinned, setIsPinned] = useState(session.isPinned || false);
+    const [isBlockedContact, setIsBlockedContact] = useState(() => isSessionBlocked(session));
     // 自定义状态栏（状态区）
     const [statusRegion, setStatusRegion] = useState<StatusRegionConfig>(() => getStatusRegionConfig(session.id));
     const [showStatusRegionDialog, setShowStatusRegionDialog] = useState(false);
@@ -1017,6 +1019,26 @@ export function ChatSettingsPanel({
                             <Toggle checked={isPinned} onChange={c => { setIsPinned(c); updateSession({ isPinned: c }); }} />
                         </div>
                     </div>
+                    {!session.isGroup && (
+                        <div className="menu-item">
+                            <ChatInfoIcon icon={UserMinus} color={BINDING_ACCENTS.api} />
+                            <div className="menu-label-group">
+                                <span className="menu-label">拉黑</span>
+                                <span className="menu-desc">拉黑后你发不了消息，TA 也不会再主动找你；TA 会知道自己被拉黑了，解除时同样会知道</span>
+                            </div>
+                            <div className="menu-right">
+                                <Toggle
+                                    checked={isBlockedContact}
+                                    onChange={c => {
+                                        const result = setCharacterBlocked(session.id, c);
+                                        if (!result.ok) return;
+                                        setIsBlockedContact(c);
+                                        session.isBlacklisted = c;
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    )}
                     <div className="menu-item">
                         <ChatInfoIcon icon={ImageIcon} color={BINDING_ACCENTS.api} />
                         <div className="menu-label-group">

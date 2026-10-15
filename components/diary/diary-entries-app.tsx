@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
-import { Bot, ChevronLeft, Clock3, NotebookPen, Trash2, WandSparkles, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, ChevronLeft, Clock3, ListOrdered, NotebookPen, RefreshCw, Trash2, WandSparkles, X } from "lucide-react";
 import { DotsThree } from "@phosphor-icons/react";
 
 import { loadCharacters } from "@/lib/character-storage";
@@ -15,10 +15,13 @@ import {
 import {
   createDiaryEntry,
   deleteDiaryEntry,
+  loadDiaryBookOrder,
   loadDiaryEntries,
   loadDiaryEntryFontAssetId,
   loadDiaryEntryFontScale,
   loadDiaryEntryTimerSettings,
+  replaceDiaryEntry,
+  saveDiaryBookOrder,
   saveDiaryEntryFontAssetId,
   saveDiaryEntryFontScale,
   saveDiaryEntryTimerSettings,
@@ -39,6 +42,7 @@ type DiaryBook = {
   characterName: string;
   avatar: string;
   entries: DiaryEntry[];
+  supporting: boolean;
 };
 
 type DiaryEntryDragState = {
@@ -135,6 +139,10 @@ export function DiaryEntriesApp({ onBack, onNotice }: DiaryEntriesAppProps) {
     [localGeneratingIds, trackedGeneratingIds],
   );
   const [entryDrag, setEntryDrag] = useState<DiaryEntryDragState | null>(null);
+  const [bookOrder, setBookOrder] = useState<string[]>(() => loadDiaryBookOrder());
+  const [showSupporting, setShowSupporting] = useState(false);
+  const [organizing, setOrganizing] = useState(false);
+  const [rewritingEntryId, setRewritingEntryId] = useState<string | null>(null);
   const entryMainRef = useRef<HTMLElement | null>(null);
   const entryTrashRef = useRef<HTMLDivElement | null>(null);
   const fontFileRef = useRef<HTMLInputElement | null>(null);
@@ -326,6 +334,41 @@ export function DiaryEntriesApp({ onBack, onNotice }: DiaryEntriesAppProps) {
       setGeneratingCharacterIds(prev => prev.filter(id => !targetIds.includes(id)));
     }
   }, [notify, refreshEntries, resolveTargets]);
+
+  /** 重写：让同一个角色按当前状态重新写这一篇，成功后原地替换（位置和日期不变）；失败时保留原文。 */
+  const rewriteEntry = useCallback(async (entry: DiaryEntry) => {
+    if (rewritingEntryId) return;
+    setRewritingEntryId(entry.id);
+    setGeneratingCharacterIds(prev => Array.from(new Set([...prev, entry.characterId])));
+    try {
+      // 参考的旧日记里去掉这一篇，避免模型照抄
+      const references = loadDiaryEntries().filter(item => item.id !== entry.id);
+      const draft = await generateDiaryEntryForCharacter(entry.characterId, references, "manual");
+      const replaced = replaceDiaryEntry(entry.id, {
+        characterId: entry.characterId,
+        characterName: entry.characterName,
+        title: draft.title,
+        mood: draft.mood,
+        weather: draft.weather,
+        tags: draft.tags,
+        body: draft.body,
+        blocks: draft.blocks,
+        trigger: entry.trigger,
+      });
+      refreshEntries();
+      if (replaced) {
+        setActiveEntry(current => current?.id === entry.id ? replaced : current);
+        notify(`${entry.characterName} 重写了这篇日记。`);
+      } else {
+        notify("原日记已经不在了，重写结果没有保存。");
+      }
+    } catch (error) {
+      notify(`重写失败，原日记保留：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRewritingEntryId(null);
+      setGeneratingCharacterIds(prev => prev.filter(id => id !== entry.characterId));
+    }
+  }, [notify, refreshEntries, rewritingEntryId]);
 
   const clearEntryDragTimer = useCallback(() => {
     const timer = entryDragRef.current?.timer;
@@ -576,13 +619,45 @@ export function DiaryEntriesApp({ onBack, onNotice }: DiaryEntriesAppProps) {
       if (list) list.push(entry);
       else map.set(entry.characterId, [entry]);
     }
-    return Array.from(map.entries()).map(([characterId, characterEntries]) => ({
-      characterId,
-      characterName: characterEntries[0].characterName,
-      avatar: characters.find(character => character.id === characterId)?.avatar ?? "",
-      entries: characterEntries,
-    }));
-  }, [entries, characters]);
+    const defaultBooks: DiaryBook[] = Array.from(map.entries()).map(([characterId, characterEntries]) => {
+      const character = characters.find(item => item.id === characterId);
+      return {
+        characterId,
+        characterName: characterEntries[0].characterName,
+        avatar: character?.avatar ?? "",
+        entries: characterEntries,
+        supporting: Boolean(character?.tags?.includes("配角")),
+      };
+    });
+    // 自定义顺序：排过序的按保存的顺序，没排过的（新出现的书）按默认顺序（最近写的在前）放最前面
+    const rank = new Map<string, number>(bookOrder.map((id, index): [string, number] => [id, index]));
+    const fresh = defaultBooks.filter(book => !rank.has(book.characterId));
+    const ranked = defaultBooks
+      .filter(book => rank.has(book.characterId))
+      .sort((a, b) => (rank.get(a.characterId) ?? 0) - (rank.get(b.characterId) ?? 0));
+    return [...fresh, ...ranked];
+  }, [entries, characters, bookOrder]);
+
+  // 配角（带「配角」标签的角色）的日记本默认折叠，和角色页一致
+  const supportingCount = books.filter(book => book.supporting).length;
+  const shelfBooks = useMemo(
+    () => (showSupporting ? books : books.filter(book => !book.supporting)),
+    [books, showSupporting],
+  );
+
+  const moveBook = useCallback((characterId: string, direction: -1 | 1) => {
+    const visibleIds = shelfBooks.map(book => book.characterId);
+    const index = visibleIds.indexOf(characterId);
+    const target = index + direction;
+    if (index === -1 || target < 0 || target >= visibleIds.length) return;
+    // 在完整顺序里，把它和相邻（可见的）那本交换位置
+    const fullIds = books.map(book => book.characterId);
+    const a = fullIds.indexOf(characterId);
+    const b = fullIds.indexOf(visibleIds[target]);
+    [fullIds[a], fullIds[b]] = [fullIds[b], fullIds[a]];
+    setBookOrder(fullIds);
+    saveDiaryBookOrder(fullIds);
+  }, [books, shelfBooks]);
 
   const activeBook = useMemo(
     () => (activeCharacterId ? books.find(book => book.characterId === activeCharacterId) ?? null : null),
@@ -666,20 +741,50 @@ export function DiaryEntriesApp({ onBack, onNotice }: DiaryEntriesAppProps) {
             ))}
           </div>
         ) : (
-          <div className="diary-shelf">
-            {[0, 1].map(column => (
-              <div className="diary-shelf-column" key={column}>
-                {books.filter((_, index) => index % 2 === column).map(book => (
-                  <DiaryBookCover
-                    key={book.characterId}
-                    book={book}
-                    busy={generatingCharacterIds.includes(book.characterId)}
-                    onOpen={() => setActiveCharacterId(book.characterId)}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="diary-shelf-toolbar">
+              {supportingCount > 0 ? (
+                <button type="button" className="diary-shelf-chip" onClick={() => setShowSupporting(value => !value)}>
+                  配角 {supportingCount} · {showSupporting ? "点此折叠" : "点此展开"}
+                </button>
+              ) : <span />}
+              {shelfBooks.length > 1 ? (
+                <button
+                  type="button"
+                  className={`diary-shelf-chip ${organizing ? "is-active" : ""}`}
+                  onClick={() => setOrganizing(value => !value)}
+                >
+                  <ListOrdered size={13} strokeWidth={1.8} />
+                  {organizing ? "完成" : "整理书架"}
+                </button>
+              ) : null}
+            </div>
+            <div className="diary-shelf">
+              {[0, 1].map(column => (
+                <div className="diary-shelf-column" key={column}>
+                  {shelfBooks.map((book, index) => ({ book, index })).filter(({ index }) => index % 2 === column).map(({ book, index }) => (
+                    <div className="diary-book-slot" key={book.characterId}>
+                      <DiaryBookCover
+                        book={book}
+                        busy={generatingCharacterIds.includes(book.characterId)}
+                        onOpen={() => (organizing ? undefined : setActiveCharacterId(book.characterId))}
+                      />
+                      {organizing ? (
+                        <div className="diary-book-move">
+                          <button type="button" disabled={index === 0} onClick={() => moveBook(book.characterId, -1)} aria-label="往前移">
+                            <ArrowLeft size={16} />
+                          </button>
+                          <button type="button" disabled={index === shelfBooks.length - 1} onClick={() => moveBook(book.characterId, 1)} aria-label="往后移">
+                            <ArrowRight size={16} />
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </main>
 
@@ -734,7 +839,13 @@ export function DiaryEntriesApp({ onBack, onNotice }: DiaryEntriesAppProps) {
       ) : null}
 
       {activeEntry ? (
-        <DiaryEntryDetail entry={activeEntry} onClose={() => setActiveEntry(null)} />
+        <DiaryEntryDetail
+          entry={activeEntry}
+          rewriting={rewritingEntryId === activeEntry.id}
+          onClose={() => setActiveEntry(null)}
+          onDelete={() => setDeleteCandidateEntry(activeEntry)}
+          onRewrite={() => void rewriteEntry(activeEntry)}
+        />
       ) : null}
 
       {deleteCandidateEntry ? (
@@ -1113,7 +1224,13 @@ function CharacterAvatarGrid({ characters, selectedIds, busyIds, disabled, onTog
   );
 }
 
-function DiaryEntryDetail({ entry, onClose }: { entry: DiaryEntry; onClose: () => void }) {
+function DiaryEntryDetail({ entry, rewriting, onClose, onDelete, onRewrite }: {
+  entry: DiaryEntry;
+  rewriting: boolean;
+  onClose: () => void;
+  onDelete: () => void;
+  onRewrite: () => void;
+}) {
   const markers = getEntryMarkers(entry);
   return (
     <div className="nw-modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
@@ -1145,6 +1262,16 @@ function DiaryEntryDetail({ entry, onClose }: { entry: DiaryEntry; onClose: () =
             <span>{entry.characterName}</span>
             <time>{formatEntryTime(entry.createdAt)}</time>
           </footer>
+          <div className="diary-entry-detail-actions">
+            <button type="button" onClick={onRewrite} disabled={rewriting} aria-busy={rewriting}>
+              <RefreshCw size={15} strokeWidth={1.8} className={rewriting ? "animate-spin" : undefined} />
+              {rewriting ? "重写中…" : "重写"}
+            </button>
+            <button type="button" className="is-danger" onClick={onDelete} disabled={rewriting}>
+              <Trash2 size={15} strokeWidth={1.8} />
+              删除
+            </button>
+          </div>
         </div>
       </article>
     </div>
