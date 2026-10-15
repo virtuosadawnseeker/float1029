@@ -269,6 +269,8 @@ export type InstalledCustomApp = {
   iconDataUrl?: string;
   entryHtml: string;
   permissions: CustomAppPermission[];
+  /** 用户在安装/详情里手动关掉的权限(permissions 仍是应用声明的完整列表) */
+  deniedPermissions?: CustomAppPermission[];
   manifest: CustomAppManifest;
   assets: Record<string, CustomAppAsset>;
   installedAt: string;
@@ -283,6 +285,15 @@ export type InstalledCustomApp = {
   /** 关联市场版后,本机编辑/换包过但还没提交更新时为 true;发布成功或重新拉取市场版后清除 */
   hasUnpublishedChanges?: boolean;
 };
+
+/** 权限是否真正生效:应用声明了、且用户没有关掉 */
+export function isCustomAppPermissionGranted(
+  app: Pick<InstalledCustomApp, "permissions" | "deniedPermissions">,
+  permission: string,
+): boolean {
+  if (!app.permissions.includes(permission as CustomAppPermission)) return false;
+  return !(app.deniedPermissions ?? []).includes(permission as CustomAppPermission);
+}
 
 export function isCustomAppIconId(value: string): value is CustomAppIconId {
   return value.startsWith(CUSTOM_APP_ICON_PREFIX) && value.length > CUSTOM_APP_ICON_PREFIX.length;

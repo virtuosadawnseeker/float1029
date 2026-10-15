@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState, useEffect, useLayoutEffect } from "react";
 import { CheckCircle2, Circle, FileJson, Layers, LoaderCircle, MoreHorizontal, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 
+import { isCustomAppPermissionGranted } from "@/lib/custom-app-types";
 import type { InstalledCustomApp } from "@/lib/custom-app-types";
 import {
   readCustomAppCollection,
@@ -530,9 +531,13 @@ html, body { min-height: 100%; }
 })();
 </script>`;
 
-  const safeBridge = bridge;
+  // CSP 必须是 <head> 里最先出现的元素,放在 bridge 之前。
+  const safeBridge = `${buildCustomAppCspMeta(app)}${bridge}`;
   if (/<head[\s>]/i.test(base)) {
     return base.replace(/<head([^>]*)>/i, `<head$1>${safeBridge}`);
+  }
+  if (/<html[\s>]/i.test(base)) {
+    return base.replace(/<html([^>]*)>/i, `<html$1><head>${safeBridge}</head>`);
   }
   if (/<body[\s>]/i.test(base)) {
     return base.replace(/<body([^>]*)>/i, `<body$1>${safeBridge}`);
@@ -540,8 +545,45 @@ html, body { min-height: 100%; }
   return `${safeBridge}${base}`;
 }
 
+/**
+ * 小应用沙箱的网络策略:
+ * - connect-src 永远是 'none':应用代码里的 fetch / XHR / WebSocket 一律不能直连外网,
+ *   联网只能走 AiPhone.network.fetch(由宿主检查权限 + 域名白名单)。
+ * - 图片/脚本/样式/字体/媒体:默认只允许内联、data:、blob:;
+ *   只有「联网权限处于开启」且 manifest.network.allowedDomains 声明了域名时才放行这些域名。
+ */
+function buildCustomAppCspMeta(app: InstalledCustomApp): string {
+  const domainSources: string[] = [];
+  if (isCustomAppPermissionGranted(app, "network.fetch")) {
+    for (const raw of app.manifest.network?.allowedDomains ?? []) {
+      if (typeof raw !== "string") continue;
+      let host = raw.trim().toLowerCase();
+      if (!host) continue;
+      host = host.replace(/^https?:\/\//, "").replace(/[\/?#].*$/, "").replace(/:\d+$/, "");
+      if (!/^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)) continue;
+      domainSources.push(`https://${host}`);
+      if (domainSources.length >= 30) break;
+    }
+  }
+  const extra = domainSources.length ? ` ${domainSources.join(" ")}` : "";
+  const csp = [
+    "default-src 'none'",
+    `script-src 'unsafe-inline' 'unsafe-eval' data: blob:${extra}`,
+    `style-src 'unsafe-inline' data: blob:${extra}`,
+    `img-src data: blob:${extra}`,
+    `font-src data: blob:${extra}`,
+    `media-src data: blob:${extra}`,
+    "connect-src 'none'",
+    "frame-src data: blob:",
+    "worker-src blob: data:",
+    "form-action 'none'",
+    "base-uri 'none'",
+  ].join("; ");
+  return `<meta http-equiv="Content-Security-Policy" content="${csp}">`;
+}
+
 function hasPermission(app: InstalledCustomApp, permission: string): boolean {
-  return app.permissions.includes(permission as never);
+  return isCustomAppPermissionGranted(app, permission);
 }
 
 function collectionName(value: unknown): string {

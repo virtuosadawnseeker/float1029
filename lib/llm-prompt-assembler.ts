@@ -16,6 +16,7 @@ import { formatPromptTimestamp, getPromptTimestampOptionsForTimeContext, resolve
 import { formatCharacterRelationsForPrompt } from "./character-world-storage";
 import { buildCharacterTimeContext, buildGroupTimeContext, type CharacterTimeContext } from "./character-time";
 import { formatShoppingPaymentRequestHistory } from "./shopping-payment-request";
+import { formatTakeoutForPrompt } from "./takeout";
 import { buildGroupAdminBracketText } from "./group-admin";
 
 export type LLMMessageRole = "system" | "user" | "assistant" | "tool";
@@ -1147,6 +1148,8 @@ export function formatRichMediaForHistory(msg: ChatMessage, userName: string, ch
                 ? `[转账:${d?.amount ?? 0}:${d?.label ?? "转账"}:${sn}:${rn}]`
                 : `[转账:${d?.amount ?? 0}:${d?.label ?? "转账"}]`;
         }
+        case "takeout":
+            return formatTakeoutForPrompt(d, userName);
         case "gift": {
             const giftName = d?.giftName || d?.label || "礼物";
             return isGroup && d?.recipientName

@@ -98,6 +98,8 @@ export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charNa
             return <TransferBubble msg={msg} charName={charName} userName={userName} onShowDetail={onShowDetail} />;
         case "gift":
             return <GiftBubble msg={msg} />;
+        case "takeout":
+            return <TakeoutBubble msg={msg} />;
         case "contact_card":
             return <ContactCardBubble msg={msg} characterId={characterId} />;
         case "payment_request":
@@ -1091,6 +1093,38 @@ function CharAvatarFallbackInline({ name }: { name: string }) {
     return (
         <div className="chat-contact-card-avatar-fallback">
             {(name || "?").slice(0, 1)}
+        </div>
+    );
+}
+
+// ── Takeout ─────────────────────────────
+
+function TakeoutBubble({ msg }: { msg: ChatMessage }) {
+    const d = msg.mediaData;
+    const items = d?.takeoutItems || d?.label || "外卖";
+    const shop = d?.takeoutShop;
+    const eta = d?.takeoutEtaMinutes ?? 30;
+    const sentAt = d?.takeoutSentAt ? new Date(d.takeoutSentAt).getTime() : 0;
+    const delivered = sentAt > 0 && Date.now() >= sentAt + eta * 60_000;
+    const sentLabel = sentAt
+        ? new Date(sentAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+        : "";
+
+    return (
+        <div className="w-[248px] rounded-2xl overflow-hidden" style={{ background: "var(--c-card)", border: "1px solid var(--c-border, rgba(128,128,128,0.18))" }}>
+            <div className="px-4 py-3 flex items-center justify-between gap-3" style={{ background: "color-mix(in srgb, var(--c-success) 16%, var(--c-card))" }}>
+                <div className="ts-13 font-semibold text-[var(--c-text-title)]">🛵 外卖订单</div>
+                <div className="ts-11 font-semibold text-[var(--c-icon)]">{delivered ? "已送达" : `约 ${eta} 分钟送达`}</div>
+            </div>
+            <div className="px-4 py-3 flex flex-col gap-1.5">
+                {shop && <div className="ts-11 text-[var(--c-icon)] truncate">{shop}</div>}
+                <div className="ts-16 font-semibold text-[var(--c-text-title)] leading-snug break-words">{items}</div>
+                {d?.takeoutNote && <div className="ts-12 text-[var(--c-text)] break-words">留言：{d.takeoutNote}</div>}
+                <div className="mt-1 pt-2 flex items-center justify-between ts-11 text-[var(--c-icon)]" style={{ borderTop: "1px dashed rgba(128,128,128,0.25)" }}>
+                    <span>{sentLabel}</span>
+                    {typeof d?.amount === "number" && d.amount > 0 && <span className="ts-13 font-semibold text-[var(--c-text)]">¥{d.amount.toFixed(2)}</span>}
+                </div>
+            </div>
         </div>
     );
 }

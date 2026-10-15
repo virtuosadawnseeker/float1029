@@ -753,6 +753,9 @@ function normalizeInstalledApp(raw: unknown): InstalledCustomApp | null {
       permissions: Array.isArray(record.permissions)
         ? record.permissions.map(normalizePermission).filter(Boolean) as CustomAppPermission[]
         : manifest.permissions ?? [],
+      deniedPermissions: Array.isArray(record.deniedPermissions)
+        ? (record.deniedPermissions.map(normalizePermission).filter(Boolean) as CustomAppPermission[])
+        : undefined,
       manifest,
       assets,
       installedAt: cleanText(record.installedAt, 80) || new Date().toISOString(),
@@ -795,6 +798,17 @@ export function saveInstalledCustomApps(apps: InstalledCustomApp[], notify = tru
 export async function saveInstalledCustomAppsAsync(apps: InstalledCustomApp[], notify = true): Promise<InstalledCustomApp[]> {
   await hydrateKvDb();
   return saveInstalledCustomApps(apps, notify);
+}
+
+/** 在应用详情里开关某项权限;permissions 保持为声明的完整列表,关掉的记在 deniedPermissions。下次启动生效。 */
+export function setCustomAppDeniedPermissions(appId: string, denied: CustomAppPermission[]): InstalledCustomApp | null {
+  const id = cleanId(appId);
+  const apps = loadInstalledCustomApps();
+  const target = apps.find(app => app.id === id);
+  if (!target) return null;
+  const next: InstalledCustomApp = { ...target, deniedPermissions: [...new Set(denied)].filter(p => target.permissions.includes(p)) };
+  saveInstalledCustomApps(apps.map(app => (app.id === id ? next : app)));
+  return next;
 }
 
 export function getInstalledCustomApp(appId: string): InstalledCustomApp | null {

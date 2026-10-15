@@ -63,7 +63,7 @@ import {
   type IconId,
   type IconPosition
 } from "@/lib/desktop-config";
-import { customAppIdFromIconId, isCustomAppIconId, toCustomAppIconId } from "@/lib/custom-app-types";
+import { customAppIdFromIconId, isCustomAppIconId, isCustomAppPermissionGranted, toCustomAppIconId } from "@/lib/custom-app-types";
 import type { InstalledCustomApp } from "@/lib/custom-app-types";
 import {
   registerCustomAppBackgroundToolExecutor,
@@ -1645,7 +1645,7 @@ export function DesktopShell({ initialThemeProfile, initialThemeAssets }: Deskto
           .filter((item): item is { app: InstalledCustomApp; subscription: CustomAppEventRecord } => Boolean(item.subscription))
           .filter(({ app }) => (
             Array.isArray(app.permissions)
-            && (app.permissions.includes("chat.read.background" as never) || app.permissions.includes("chat.read" as never))
+            && (isCustomAppPermissionGranted(app, "chat.read.background") || isCustomAppPermissionGranted(app, "chat.read"))
           ))
           .filter(({ app }) => activeApp !== toCustomAppIconId(app.id))
           .map(({ app, subscription }) => {

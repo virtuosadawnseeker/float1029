@@ -1,4 +1,5 @@
 import { loadInstalledCustomApps } from "./custom-app-storage";
+import { isCustomAppPermissionGranted } from "./custom-app-types";
 import type {
   CustomAppChatCardAction,
   CustomAppChatInputTool,
@@ -48,7 +49,7 @@ function isSharedCustomAppTool(tool: CustomAppToolDefinition): boolean {
 }
 
 function canExposeCustomAppTools(app: InstalledCustomApp): boolean {
-  return app.permissions.includes("chat.tools" as never);
+  return isCustomAppPermissionGranted(app, "chat.tools");
 }
 
 function customAppToolVisibleInContext(
