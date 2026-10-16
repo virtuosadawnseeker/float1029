@@ -31,6 +31,46 @@ export function determineBaseUrl(config: { provider: string; baseUrl?: string })
 }
 
 /**
+ * 拉取该 API 配置的模型列表（设置页和悬浮球共用）。
+ * Gemini 原生协议用 ?key= 鉴权，响应是 { models: [{ name }] }；
+ * OpenAI 兼容用 Bearer，响应是 { data: [{ id }] }。
+ * 失败会 throw Error，调用方自己展示错误。
+ */
+export async function fetchApiModelList(config: ApiConfig): Promise<string[]> {
+    const baseUrl = determineBaseUrl(config);
+    if (!baseUrl) throw new Error("缺少 Base URL");
+    if (!config.apiKey) throw new Error("缺少 API Key");
+
+    const isGoogleNative = config.provider === "Google";
+    // 用户常把完整端点填进 Base URL（如 .../v1/embeddings、.../v1/chat/completions），
+    // 拼 /models 前剥掉这类端点后缀；已以 /models 结尾则原样使用。
+    const modelsBase = baseUrl
+        .replace(/\/$/, "")
+        .replace(/\/(chat\/completions|completions|embeddings|messages)$/i, "");
+    const modelsUrl = /\/models$/i.test(modelsBase) ? modelsBase : `${modelsBase}/models`;
+    const url = isGoogleNative
+        ? `${modelsUrl}?key=${encodeURIComponent(config.apiKey)}`
+        : modelsUrl;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (!isGoogleNative) headers["Authorization"] = `Bearer ${config.apiKey}`;
+
+    const response = await fetch(url, { method: "GET", headers });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (isGoogleNative && Array.isArray(data?.models)) {
+        return data.models.map((m: { name: string }) => (m.name || "").replace(/^models\//, ""));
+    }
+    if (Array.isArray(data?.data)) {
+        return data.data.map((m: { id: string }) => m.id);
+    }
+    throw new Error("返回数据格式不符合预期");
+}
+
+/**
  * Build the chat completions fetch URL for a given base URL.
  * Most providers use the OpenAI-compatible `/chat/completions` endpoint.
  * Google Gemini uses a different path, handled separately by callers.
