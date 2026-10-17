@@ -157,6 +157,7 @@ export type ChatMessage = {
         giftTone?: "ivory" | "mist" | "blush" | "graphite";
         giftDeliveredAt?: string;// 到货时间
         giftSentAt?: string;     // 送出时间
+        giftOffline?: boolean;   // 线下模式当面送出（只做记录与礼物库存扣除，不触发线上回复）
         takeoutShop?: string;    // 外卖店名
         takeoutItems?: string;   // 外卖商品
         takeoutNote?: string;    // 外卖留言
