@@ -27,7 +27,7 @@ import {
 } from "@/lib/map-storage";
 import { generateWorldSkeleton, DEFAULT_WORLD_GEN_PROMPT, DEFAULT_DM_SCENE_PROMPT, DEFAULT_DM_RESOLVE_PROMPT, DEFAULT_DM_ENDING_PROMPT, DEFAULT_ADVENTURE_SUMMARY_PROMPT } from "@/lib/map-rpg-engine";
 import { generateMap, type GeoJSONData } from "@/lib/map-engine";
-import { loadApiConfigs, loadBindingConfig, resolveBinding } from "@/lib/settings-storage";
+import { loadChatApiConfigs, loadBindingConfig, resolveBinding } from "@/lib/settings-storage";
 import type { MapWorld, GameSave } from "@/lib/map-types";
 import { Toggle } from "@/components/ui/form";
 
@@ -171,7 +171,7 @@ export default function MapLobby({ onClose, onStartGame }: Props) {
     setIsGenerating(true);
     setError(null);
 
-    const apiConfigs = loadApiConfigs();
+    const apiConfigs = loadChatApiConfigs();
     const bindings = loadBindingConfig();
     const firstChar = characters[0];
     const slot = firstChar ? resolveBinding(bindings, firstChar.id, "chat") : null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useContext, type CSSProperties } from "react";
+import { useState, useEffect, useContext, useMemo, type CSSProperties } from "react";
 import {
     Asterisk,
     BookOpen,
@@ -58,6 +58,7 @@ import {
     loadUserIdentities,
     ensureSettingsStorageHydrated,
 } from "@/lib/settings-storage";
+import { filterChatApiConfigs, filterEmbeddingApiConfigs } from "@/lib/api-config-kind";
 import { hydrateKvDb } from "@/lib/kv-db";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import { loadCharacters } from "@/lib/character-storage";
@@ -110,6 +111,8 @@ export function BindingManager() {
     const [config, setConfig] = useState<BindingConfig>({ globalDefaults: {}, characterBindings: [] });
     const [characters, setCharacters] = useState<Character[]>([]);
     const [apiConfigs, setApiConfigs] = useState<ApiConfig[]>([]);
+    // 向量配置不能聊天：对话类选择器只给对话配置，向量召回 API 只给向量配置
+    const chatApiConfigs = useMemo(() => filterChatApiConfigs(apiConfigs), [apiConfigs]);
     const [voiceConfigs, setVoiceConfigs] = useState<VoiceApiConfig[]>([]);
     const [presets, setPresets] = useState<PresetConfig[]>([]);
     const [worldBooks, setWorldBooks] = useState<WorldBookConfig[]>([]);
@@ -203,7 +206,7 @@ export function BindingManager() {
             if (gChanged) dirty = true;
             // 全局三项「所见即所得」：不允许未设置，缺省/悬空清理后落位为实际兜底值
             // （API=第一个配置、预设=内置、身份=第一条），界面显示的就是实际生效的
-            if (apiConfigs.length > 0 && !gd.apiConfigId) { gd.apiConfigId = apiConfigs[0].id; dirty = true; }
+            if (chatApiConfigs.length > 0 && !gd.apiConfigId) { gd.apiConfigId = chatApiConfigs[0].id; dirty = true; }
             if (presets.length > 0 && !gd.presetId) { gd.presetId = (presets.find(p => p.builtIn) ?? presets[0]).id; dirty = true; }
             if (identities.length > 0 && !gd.userIdentityId) { gd.userIdentityId = identities[0].id; dirty = true; }
             const newAppDefaults: Record<string, BindingSlot> = {};
@@ -252,7 +255,7 @@ export function BindingManager() {
             }
             return prev;
         });
-    }, [isLoaded, apiConfigs, voiceConfigs, presets, worldBooks, regexes, identities]);
+    }, [isLoaded, apiConfigs, chatApiConfigs, voiceConfigs, presets, worldBooks, regexes, identities]);
 
     // Navigation management
     useEffect(() => {
@@ -472,7 +475,7 @@ export function BindingManager() {
     const getBindingFieldOptions = (field: BindingField): { id: string; name: string }[] => {
         switch (field) {
             case "apiConfigId":
-                return apiConfigs.map(c => ({ id: c.id, name: c.name || c.provider }));
+                return chatApiConfigs.map(c => ({ id: c.id, name: c.name || c.provider }));
             case "voiceConfigId":
                 return voiceConfigs.map(c => ({ id: c.id, name: c.name || c.provider }));
             case "presetId":
@@ -538,12 +541,24 @@ export function BindingManager() {
         persist({ ...config, [field]: value || undefined });
     };
 
+    const getAuxOptions = (field: AuxBindingField): { id: string; name: string }[] => {
+        const pool = field === "embeddingApiConfigId"
+            ? filterEmbeddingApiConfigs(apiConfigs)
+            : chatApiConfigs;
+        const current = config[field];
+        // 已绑定的旧配置（比如早先把对话配置绑成向量召回）即使不在池子里也要保留可见，避免悄悄丢选择
+        const withCurrent = current && !pool.some(c => c.id === current)
+            ? [...pool, ...apiConfigs.filter(c => c.id === current)]
+            : pool;
+        return withCurrent.map(c => ({ id: c.id, name: c.name || c.provider }));
+    };
+
     const renderAuxSelect = (
         field: AuxBindingField,
         label: string,
     ) => {
         const currentValue = config[field];
-        const options = apiConfigs.map(c => ({ id: c.id, name: c.name || c.provider }));
+        const options = getAuxOptions(field);
         const selectedOption = options.find(o => o.id === currentValue);
         const displayValue = selectedOption ? selectedOption.name : (field === "memorySummaryFallbackApiConfigId" ? "不使用备用" : "继承全局");
 
@@ -851,7 +866,7 @@ export function BindingManager() {
         if (!activeAuxSheetField) return null;
         const field = activeAuxSheetField;
         const label = getAuxFieldLabel(field);
-        const options = apiConfigs.map(c => ({ id: c.id, name: c.name || c.provider }));
+        const options = getAuxOptions(field);
         const selectedValue = config[field];
 
         return (

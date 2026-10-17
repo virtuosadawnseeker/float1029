@@ -13,6 +13,7 @@ import { fetchLlmPayload } from "./llm-http";
 import { pushApiLog } from "./api-log-store";
 import type { LLMContentPart } from "./llm-prompt-assembler";
 import { loadApiConfigs, loadBindingConfig } from "./settings-storage";
+import { filterChatApiConfigs } from "./api-config-kind";
 import type { ApiConfig } from "./settings-types";
 import { buildQaSystemPrompt } from "./qa-knowledge";
 import { createSseJsonParser } from "./sse-json";
@@ -55,7 +56,7 @@ export function resolveQaApiConfig(): ApiConfig | null {
         const found = apiConfigs.find((c) => c.id === globalId);
         if (found) return found;
     }
-    return apiConfigs[0] ?? null;
+    return filterChatApiConfigs(apiConfigs)[0] ?? null;
 }
 
 function requireQaApiConfig(): ApiConfig {

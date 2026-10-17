@@ -62,6 +62,7 @@ import {
   saveVoiceConfigs,
   saveWorldBooks,
 } from "./settings-storage";
+import { filterChatApiConfigs } from "./api-config-kind";
 import type { ApiConfig, VoiceApiConfig, WorldBookConfig, WorldBookEntry } from "./settings-types";
 import { createSTTSession } from "./stt-service";
 import { generateImageFromConfiguredApi } from "./image-generation-service";
@@ -295,7 +296,7 @@ function resolveCustomAppApiConfig(app: InstalledCustomApp, record: Record<strin
     const found = apiConfigs.find(config => config.id === bindings.globalDefaults.apiConfigId);
     if (found) return found;
   }
-  return apiConfigs[0] ?? null;
+  return filterChatApiConfigs(apiConfigs)[0] ?? null;
 }
 
 function resolveCustomAppVoiceConfig(app: InstalledCustomApp, record: Record<string, unknown>): VoiceApiConfig | null {

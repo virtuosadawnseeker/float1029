@@ -11,7 +11,7 @@ import {
 } from "@/lib/map-storage";
 import { ADVENTURE_THEMES } from "./map-text-stream";
 import { loadCharacters } from "@/lib/character-storage";
-import { loadApiConfigs, loadBindingConfig, resolveBinding, resolveUserIdentity, resolveAuxiliaryApiConfig } from "@/lib/settings-storage";
+import { loadChatApiConfigs, loadBindingConfig, resolveBinding, resolveUserIdentity, resolveAuxiliaryApiConfig } from "@/lib/settings-storage";
 import { expandEvent, companionDeclare, resolveRound, rollD100, ROLL_LABELS, formatGameTime, pickEncounter, shouldTriggerEncounter, setDMDebugCallback, shouldAutoSummarize, generateAdventureSummary, generateEnding, type EndingResult, DEFAULT_DM_ENDING_PROMPT } from "@/lib/map-rpg-engine";
 import { STAT_LABELS, ALL_STATS } from "@/lib/map-types";
 import MapRenderer from "./map-renderer";
@@ -397,7 +397,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     setEventLoading(true);
     setActiveEventMeta({ type: eventType, questId: meta?.questId });
     try {
-      const apiConfigs = loadApiConfigs();
+      const apiConfigs = loadChatApiConfigs();
       const bindings = loadBindingConfig();
       // DM API: multi-agent → global binding; single-agent → that agent's adventure binding
       const dmSlot = save.agents.length === 1
@@ -546,7 +546,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     setLastFailedAction(actionText);  // save immediately so it persists if interrupted
 
     try {
-      const apiConfigs = loadApiConfigs();
+      const apiConfigs = loadChatApiConfigs();
       const bindings = loadBindingConfig();
       // DM API: multi-agent → global binding; single-agent → that agent's adventure binding
       const dmSlot = save.agents.length === 1
@@ -894,7 +894,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
       // Auto-summary check (fire-and-forget)
       const latestSave = saveRef.current;
       if (shouldAutoSummarize(latestSave)) {
-        const summaryApi = resolveAuxiliaryApiConfig("memorySummaryApiConfigId") || loadApiConfigs().find(c => c.apiKey);
+        const summaryApi = resolveAuxiliaryApiConfig("memorySummaryApiConfigId") || loadChatApiConfigs().find(c => c.apiKey);
         if (summaryApi?.apiKey) {
           generateAdventureSummary(latestSave, skeleton.world.name, summaryApi).catch(() => undefined);
         }
@@ -951,7 +951,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
 
     // Let companions react to the exit decision
     try {
-      const apiConfigs = loadApiConfigs();
+      const apiConfigs = loadChatApiConfigs();
       const bindings = loadBindingConfig();
       const firstCharId = save.agents[0]?.characterId || characters[0]?.id || "";
       const slot = firstCharId ? resolveBinding(bindings, firstCharId, "adventure") : null;
@@ -1145,7 +1145,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
 
     setFreeModeReplying(true);
     try {
-      const apiConfigs = loadApiConfigs();
+      const apiConfigs = loadChatApiConfigs();
       const bindings = loadBindingConfig();
       const slot = resolveBinding(bindings, characterId, "adventure");
       const apiConfig = (slot?.apiConfigId ? apiConfigs.find(c => c.id === slot.apiConfigId) : null) || apiConfigs.find(c => c.apiKey) || apiConfigs[0];
@@ -1174,7 +1174,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
     pushMessages({ id: mkId(), type: "system", text: "—— DM 裁决中 ——" });
 
     try {
-      const apiConfigs = loadApiConfigs();
+      const apiConfigs = loadChatApiConfigs();
       const bindings = loadBindingConfig();
       const dmSlot = save.agents.length === 1
         ? resolveBinding(bindings, save.agents[0].characterId, "adventure")
@@ -1305,7 +1305,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
 
   // ── Archive adventure ──
   const handleArchive = useCallback(() => {
-    const summaryApi = resolveAuxiliaryApiConfig("memorySummaryApiConfigId") || loadApiConfigs().find(c => c.apiKey);
+    const summaryApi = resolveAuxiliaryApiConfig("memorySummaryApiConfigId") || loadChatApiConfigs().find(c => c.apiKey);
     if (summaryApi?.apiKey) {
       generateAdventureSummary(save, skeleton.world.name, summaryApi).catch(() => undefined);
     }
@@ -2498,7 +2498,7 @@ export default function MapView({ world, save, onSaveUpdate, onBack }: Props) {
                 {/* Manual summary button (for this world) */}
                 <div style={{ fontSize: "calc(10px*var(--app-text-scale,1))", color: "var(--c-adv-text-muted)", marginTop: 14, marginBottom: 8, fontFamily: "monospace", letterSpacing: "0.1em" }}>冒险总结</div>
                 <button onClick={async () => {
-                  const apiConfig = resolveAuxiliaryApiConfig("memorySummaryApiConfigId") || loadApiConfigs().find(c => c.apiKey);
+                  const apiConfig = resolveAuxiliaryApiConfig("memorySummaryApiConfigId") || loadChatApiConfigs().find(c => c.apiKey);
                   if (!apiConfig?.apiKey) return;
                   pushMessages({ id: mkId(), type: "system", text: "正在总结冒险经历..." });
                   try {

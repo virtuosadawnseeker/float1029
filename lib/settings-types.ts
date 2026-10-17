@@ -149,6 +149,8 @@ export type ApiConfig = {
     apiKey: string;
     baseUrl?: string;
     defaultModel: string;
+    /** "embedding" = 向量配置（只用于记忆向量召回，不能聊天）；缺省按默认模型名自动判断，见 lib/api-config-kind.ts */
+    purpose?: "chat" | "embedding";
     enableNativeTools?: boolean;
     enableImageRecognition: boolean;
     enableImageGeneration: boolean;
