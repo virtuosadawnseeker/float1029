@@ -738,6 +738,59 @@
   height: 24px;
 }
 
+/* 线下模式：当面送礼，选好的礼物挂在输入框上方 */
+.chat-offline-gift-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 2px 6px;
+}
+
+.chat-offline-gift-chip {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px 4px 9px;
+  border-radius: 999px;
+  color: var(--c-text-title);
+  background: color-mix(in srgb, var(--c-success) 14%, var(--c-input));
+  font-size: calc(11.5px*var(--app-text-scale,1));
+  font-weight: 650;
+}
+
+.chat-offline-gift-chip svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
+.chat-offline-gift-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-offline-gift-chip button {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  color: inherit;
+  background: transparent;
+  opacity: 0.7;
+}
+
+.chat-offline-gift-chip button:disabled {
+  opacity: 0.3;
+}
+
 .chat-offline-toggle {
   position: relative;
 }

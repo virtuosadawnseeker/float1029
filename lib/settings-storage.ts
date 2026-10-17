@@ -15,6 +15,7 @@ import type {
     Prompt,
     PromptOrderEntry,
 } from "./settings-types";
+import { filterChatApiConfigs } from "./api-config-kind";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import { createBuiltinPreset, BUILTIN_PRESET_VERSION } from "./builtin-preset";
 import {
@@ -642,6 +643,11 @@ export function loadApiConfigs(): ApiConfig[] {
     }
 }
 
+/** 只含对话用的 API 配置（排除向量配置），用于各处的默认值兜底与选择器。 */
+export function loadChatApiConfigs(): ApiConfig[] {
+    return filterChatApiConfigs(loadApiConfigs());
+}
+
 export function saveApiConfigs(configs: ApiConfig[]): void {
     if (typeof window === "undefined") return;
     kvSet(API_CONFIGS_KEY, JSON.stringify(configs.map(normalizeApiConfig)));
@@ -953,8 +959,10 @@ export function ensureGlobalBindingDefaults(): void {
     const global = config.globalDefaults;
     let changed = false;
 
-    const apiConfigs = loadApiConfigs();
-    if (apiConfigs.length > 0 && !apiConfigs.some(c => c.id === global.apiConfigId)) {
+    // 悬空才重置；兜底只选对话配置（向量配置不能聊天）
+    const allApiConfigs = loadApiConfigs();
+    const apiConfigs = filterChatApiConfigs(allApiConfigs);
+    if (apiConfigs.length > 0 && !allApiConfigs.some(c => c.id === global.apiConfigId)) {
         global.apiConfigId = apiConfigs[0].id;
         changed = true;
     }

@@ -940,6 +940,9 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
     onToggleEmojiPanel: () => void;
     onSendText: (text: string) => boolean;
     onStopGeneration: () => void;
+    onOpenGiftPicker: () => void;
+    pendingGifts: { id: string; name: string; recipientName?: string }[];
+    onRemovePendingGift: (id: string) => void;
 }>(function OfflineTextInputBar({
     isOfflineGenerating,
     isSpectator,
@@ -950,9 +953,13 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
     onToggleEmojiPanel,
     onSendText,
     onStopGeneration,
+    onOpenGiftPicker,
+    pendingGifts,
+    onRemovePendingGift,
 }, ref) {
     const [inputText, setInputText] = useState("");
     const inputTextRef = useRef("");
+    const hasPendingGifts = pendingGifts.length > 0;
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
     const resetTextareaHeight = () => {
@@ -1001,7 +1008,7 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
             return;
         }
         const trimmed = inputTextRef.current.trim();
-        if (!trimmed && !isSpectator) return;
+        if (!trimmed && !isSpectator && !hasPendingGifts) return;
         if (!onSendText(trimmed)) return;
         inputTextRef.current = "";
         setInputText("");
@@ -1010,6 +1017,26 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
 
     return (
         <div className="chat-input-bar chat-room-main-pane flex flex-col" data-ui="input">
+            {hasPendingGifts && (
+                <div className="chat-offline-gift-chips">
+                    {pendingGifts.map(item => (
+                        <span key={item.id} className="chat-offline-gift-chip">
+                            <Gift size={13} strokeWidth={1.8} />
+                            <span className="chat-offline-gift-chip-text">
+                                {item.recipientName ? `送给 ${item.recipientName}：` : "当面送出："}{item.name}
+                            </span>
+                            <button
+                                type="button"
+                                aria-label="取消送出这件礼物"
+                                onClick={() => onRemovePendingGift(item.id)}
+                                disabled={isOfflineGenerating}
+                            >
+                                <X size={13} />
+                            </button>
+                        </span>
+                    ))}
+                </div>
+            )}
             <textarea
                 ref={textareaRef}
                 rows={1}
@@ -1065,8 +1092,19 @@ const OfflineTextInputBar = memo(forwardRef<OfflineTextInputHandle, {
                 </button>
                 <button
                     type="button"
+                    onClick={onOpenGiftPicker}
+                    disabled={isSpectator || isOfflineGenerating}
+                    className="ui-bare-btn text-[var(--c-text)]"
+                    style={isSpectator ? { opacity: 0.35 } : undefined}
+                    aria-label="送礼物"
+                    title="当面送礼物"
+                >
+                    <Gift size={24} strokeWidth={1.5} />
+                </button>
+                <button
+                    type="button"
                     onClick={() => { if (isOfflineGenerating) onStopGeneration(); else handleSubmit(); }}
-                    disabled={!isOfflineGenerating && !isSpectator && !inputText.trim()}
+                    disabled={!isOfflineGenerating && !isSpectator && !inputText.trim() && !hasPendingGifts}
                     className="ui-bare-btn text-[var(--c-text)]"
                     aria-label={isOfflineGenerating ? "停止线下生成" : "发送"}
                     title={isOfflineGenerating ? "停止线下生成" : "发送"}
@@ -1114,6 +1152,9 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
     const [offlineTurns, setOfflineTurns] = useState<ChatOfflineTurn[]>([]);
     const [offlineVisibleCount, setOfflineVisibleCount] = useState(OFFLINE_INITIAL_LOAD);
     const [pendingOfflineUserText, setPendingOfflineUserText] = useState("");
+    // 线下模式当面送礼：选好的礼物先挂在输入框上方，发送这一轮时一起写进剧情并记入礼物库存
+    const [offlineGiftPickerOpen, setOfflineGiftPickerOpen] = useState(false);
+    const [offlinePendingGifts, setOfflinePendingGifts] = useState<{ gift: ShoppingGiftCandidate; recipient?: Character }[]>([]);
     const [isOfflineGenerating, setIsOfflineGenerating] = useState(false);
     // 流式生成预览：线上（单聊/群聊）与线下各一份，生成中实时刷新，结束后清空
     const [streamPreview, setStreamPreview] = useState<null | {
@@ -4184,6 +4225,8 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         setShowEmojiPanel(false);
         setShowStickerPanel(false);
         setRichModal(null);
+        setOfflineGiftPickerOpen(false);
+        setOfflinePendingGifts([]);
         setQuotingMessage(null);
         setActiveOfflineTarget(null);
         setOfflineTurns(loadChatOfflineTurns(session.id));
@@ -4220,14 +4263,53 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
         const rawText = inputText.trim();
         // 围观群：用户不在群里，写下的话作为「系统指令」影响下一轮，留空则直接推进
         const isDirectorNote = Boolean(session.isGroup && session.isSpectator && rawText);
-        const currentText = isDirectorNote ? `${OFFLINE_DIRECTOR_PREFIX}${rawText}` : rawText;
+        const giftsToGive = session.isGroup && session.isSpectator ? [] : offlinePendingGifts;
+        const giftSenderName = userIdentity?.name || "你";
+        const giftLines = giftsToGive.map(({ gift, recipient }) => {
+            const price = gift.priceLabel ? `，价值${gift.priceLabel}` : "";
+            return recipient
+                ? `（${giftSenderName}当面把礼物「${gift.productName}」送给了${recipient.name}${price}。）`
+                : `（${giftSenderName}当面送出了礼物：「${gift.productName}」${price}。）`;
+        });
+        const userBody = isDirectorNote ? `${OFFLINE_DIRECTOR_PREFIX}${rawText}` : rawText;
+        const currentText = [...giftLines, userBody].filter(Boolean).join("\n");
         if (!currentText && !(session.isGroup && session.isSpectator)) return false;
+
+        // 礼物当面送出：记一条礼物消息（只做记录与库存扣除，不触发线上回复），避免同一件礼物被重复送出
+        if (giftsToGive.length > 0) {
+            const sentAt = new Date().toISOString();
+            const giftMessages = giftsToGive.map(({ gift, recipient }) => pushChatMessage({
+                sessionId: session.id,
+                role: "user",
+                content: "",
+                mediaType: "gift",
+                mediaData: {
+                    label: gift.productName,
+                    giftName: gift.productName,
+                    shoppingGiftId: gift.id,
+                    giftOrderId: gift.orderId,
+                    giftItemId: gift.itemId,
+                    giftMerchantLabel: gift.merchantLabel,
+                    giftPriceLabel: gift.priceLabel,
+                    giftPreviewIcon: gift.previewIcon,
+                    giftTone: gift.tone,
+                    giftDeliveredAt: gift.deliveredAt,
+                    giftSentAt: sentAt,
+                    giftOffline: true,
+                    senderName: giftSenderName,
+                    ...(recipient ? { recipientId: recipient.id, recipientName: recipient.name } : {}),
+                },
+            }));
+            setMessages(prev => [...prev, ...giftMessages]);
+            setOfflinePendingGifts([]);
+        }
 
         cancelFollowUp(session.id);
         setShowPlusMenu(false);
         setShowEmojiPanel(false);
         setShowStickerPanel(false);
         setRichModal(null);
+        setOfflineGiftPickerOpen(false);
         setPendingOfflineUserText(currentText);
         offlineGenerationInputRef.current = currentText;
         setIsOfflineGenerating(true);
@@ -6304,6 +6386,12 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                     onToggleEmojiPanel={() => { setShowEmojiPanel(!showEmojiPanel); setShowStickerPanel(false); setShowPlusMenu(false); }}
                     onSendText={handleOfflineSend}
                     onStopGeneration={clearOfflineGeneration}
+                    onOpenGiftPicker={() => {
+                        setShowEmojiPanel(false);
+                        setOfflineGiftPickerOpen(true);
+                    }}
+                    pendingGifts={offlinePendingGifts.map(item => ({ id: item.gift.id, name: item.gift.productName, recipientName: item.recipient?.name }))}
+                    onRemovePendingGift={id => setOfflinePendingGifts(prev => prev.filter(item => item.gift.id !== id))}
                 />
             ) : (
             <ChatTextInputBar
@@ -6496,6 +6584,22 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                         if (sent) setRichModal(null);
                     }}
                     onClose={() => setRichModal(null)}
+                />
+            )}
+            {offlineGiftPickerOpen && offlineMode && (
+                <GiftPickerModal
+                    gifts={availableShoppingGifts.filter(gift => !offlinePendingGifts.some(item => item.gift.id === gift.id))}
+                    isGroup={session.isGroup}
+                    recipients={groupCharacters}
+                    onSend={(gift, recipient) => {
+                        if (session.isGroup && !recipient) {
+                            showChatToast("请选择收礼对象");
+                            return;
+                        }
+                        setOfflinePendingGifts(prev => [...prev, { gift, recipient }]);
+                        setOfflineGiftPickerOpen(false);
+                    }}
+                    onClose={() => setOfflineGiftPickerOpen(false)}
                 />
             )}
             {richModal === "takeout" && !session.isGroup && (

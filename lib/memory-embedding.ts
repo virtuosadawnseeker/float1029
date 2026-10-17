@@ -2,6 +2,7 @@
 // Embedding generation + vector/keyword search for memory retrieval.
 
 import type { ApiConfig } from "./settings-types";
+import { isEmbeddingModelName } from "./api-config-kind";
 import type { MemoryEntry, MemorySearchResult } from "./memory-types";
 import { determineBaseUrl, buildRequestHeaders } from "./api-helpers";
 
@@ -18,18 +19,14 @@ export function getEmbeddingModelForProvider(provider: string): string | null {
 }
 
 /** 常见向量模型命名特征（embedding-3 / text-embedding-* / bge-* / m3e / gte 等） */
-const EMBEDDING_MODEL_NAME_RE = /embed|bge-|m3e|text2vec|\be5\b|\bgte\b/i;
-
-export function isEmbeddingModelName(model: string | undefined): boolean {
-    return Boolean(model && EMBEDDING_MODEL_NAME_RE.test(model));
-}
+export { isEmbeddingModelName };
 
 /** 解析该配置应使用的向量模型：默认模型名看起来像向量模型就直接用
  *  （自定义服务商、以及智谱 embedding-3 等新模型因此可配），否则回退
  *  按服务商的内置映射（老用户绑普通对话配置的行为不变）。 */
-export function resolveEmbeddingModel(apiConfig: Pick<ApiConfig, "provider" | "defaultModel">): string | null {
+export function resolveEmbeddingModel(apiConfig: Pick<ApiConfig, "provider" | "defaultModel" | "purpose">): string | null {
     const model = apiConfig.defaultModel?.trim();
-    if (model && isEmbeddingModelName(model)) return model;
+    if (model && (apiConfig.purpose === "embedding" || isEmbeddingModelName(model))) return model;
     return getEmbeddingModelForProvider(apiConfig.provider);
 }
 

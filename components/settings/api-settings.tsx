@@ -5,11 +5,12 @@ import { Plus, RefreshCw, Rss, AlertCircle, FileEdit, Trash2, X, Check } from "l
 import { SettingsContext } from "../phone-settings-app";
 import type { ApiConfig } from "@/lib/settings-types";
 import { loadApiConfigs, removeApiConfigReferences, saveApiConfigs } from "@/lib/settings-storage";
-import { generateEmbedding, isEmbeddingModelName } from "@/lib/memory-embedding";
+import { generateEmbedding } from "@/lib/memory-embedding";
+import { isEmbeddingApiConfig } from "@/lib/api-config-kind";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { Toggle, Input } from "@/components/ui/form";
 import { Alert } from "@/components/ui/feedback";
-import { determineBaseUrl, simpleLLMCall } from "@/lib/api-helpers";
+import { fetchApiModelList, simpleLLMCall } from "@/lib/api-helpers";
 
 const DEFAULT_CONFIGS: ApiConfig[] = [
     {
@@ -62,17 +63,19 @@ export function ApiSettings() {
         saveApiConfigs(newConfigs);
     }, []);
 
-    const addConfig = useCallback(() => {
+    const addConfig = useCallback((purpose: "chat" | "embedding" = "chat") => {
+        const isEmbedding = purpose === "embedding";
         const newConfig: ApiConfig = {
             id: `config-${Date.now()}`,
-            name: "新配置",
+            name: isEmbedding ? "新向量配置" : "新配置",
             provider: "Custom",
             apiKey: "",
             defaultModel: "",
-            enableNativeTools: true,
+            purpose: isEmbedding ? "embedding" : undefined,
+            enableNativeTools: !isEmbedding,
             enableImageRecognition: false,
             enableImageGeneration: false,
-            preventEmptyGenerateRambling: true,
+            preventEmptyGenerateRambling: !isEmbedding,
         };
         persist([...configs, newConfig]);
         setIsNewConfig(true);
@@ -82,7 +85,7 @@ export function ApiSettings() {
     useEffect(() => {
         setSubpageRightAction("api",
             <button
-                onClick={addConfig}
+                onClick={() => addConfig("chat")}
                 className="inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-[20px] bg-black px-4 text-xs font-bold text-white shadow-sm transition-all hover:bg-gray-800 hover:shadow-md active:scale-95 focus:outline-none"
             >
                 <Plus size={15} strokeWidth={1.8} />
@@ -115,42 +118,7 @@ export function ApiSettings() {
         setTestResult(prev => ({ ...prev, [config.id]: { success: false, message: "" } }));
 
         try {
-            const baseUrl = determineBaseUrl(config);
-            if (!baseUrl) throw new Error("缺少 Base URL");
-            if (!config.apiKey) throw new Error("缺少 API Key");
-
-            // Gemini 原生协议（/v1beta）：URL 用 ?key= 鉴权，响应是 { models: [{ name }] }
-            // OpenAI 兼容（/v1）：Authorization: Bearer + 响应是 { data: [{ id }] }
-            const isGoogleNative = config.provider === "Google";
-            // 用户常把完整端点填进 Base URL（如 .../v1/embeddings、.../v1/chat/completions），
-            // 拼 /models 前剥掉这类端点后缀；已以 /models 结尾则原样使用。
-            const modelsBase = baseUrl
-                .replace(/\/$/, "")
-                .replace(/\/(chat\/completions|completions|embeddings|messages)$/i, "");
-            const modelsUrl = /\/models$/i.test(modelsBase) ? modelsBase : `${modelsBase}/models`;
-            const url = isGoogleNative
-                ? `${modelsUrl}?key=${encodeURIComponent(config.apiKey)}`
-                : modelsUrl;
-            const headers: Record<string, string> = { "Content-Type": "application/json" };
-            if (!isGoogleNative) headers["Authorization"] = `Bearer ${config.apiKey}`;
-
-            const response = await fetch(url, { method: "GET", headers });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            let modelNames: string[] = [];
-            if (isGoogleNative && Array.isArray(data?.models)) {
-                // Gemini 原生：name 可能是 "models/gemini-2.5-pro" 或纯名字
-                modelNames = data.models.map((m: { name: string }) => (m.name || "").replace(/^models\//, ""));
-            } else if (Array.isArray(data?.data)) {
-                modelNames = data.data.map((m: { id: string }) => m.id);
-            } else {
-                throw new Error("返回数据格式不符合预期");
-            }
+            const modelNames = await fetchApiModelList(config);
             setFetchedModels(prev => ({ ...prev, [config.id]: modelNames }));
             setTestResult(prev => ({ ...prev, [config.id]: { success: true, message: `成功获取 ${modelNames.length} 个模型` } }));
         } catch (error: unknown) {
@@ -174,7 +142,7 @@ export function ApiSettings() {
         try {
             // 向量模型配置：测 /embeddings 端点。原来一律测 /chat/completions，
             // 导致 embedding 配置永远 404「测试失败」。
-            if (isEmbeddingModelName(config.defaultModel)) {
+            if (isEmbeddingApiConfig(config)) {
                 const embedding = await generateEmbedding("你好", config, { throwOnError: true });
                 if (!embedding) throw new Error("接口未返回向量数据");
                 setTestResult(prev => ({
@@ -209,30 +177,10 @@ export function ApiSettings() {
         }
     };
 
-    if (!isLoaded) return null;
+    const chatConfigs = configs.filter(config => !isEmbeddingApiConfig(config));
+    const embeddingConfigs = configs.filter(config => isEmbeddingApiConfig(config));
 
-    return (
-        <div className="flex flex-col gap-6">
-            <div className="flex items-center">
-                <h2 className="m-0 mx-2 ts-28 font-bold italic leading-none text-black">API Settings</h2>
-            </div>
-
-            {configs.length === 0 ? (
-                <div className="ui-empty">
-                    <div className="ui-icon-circle">
-                        <AlertCircle size={24} />
-                    </div>
-                    <span className="menu-label font-semibold">没有 API 配置</span>
-                    <span className="menu-desc max-w-[240px]">
-                        配置 API 密钥和模型以连接到 AI 服务。
-                    </span>
-                    <button onClick={addConfig} className="ui-btn ui-btn-primary rounded-[20px] mt-2">
-                        <Plus size={16} /> 添加配置
-                    </button>
-                </div>
-            ) : (
-                <div className="grid grid-cols-2 gap-3">
-                    {configs.map(config => (
+    const renderConfigCard = (config: ApiConfig) => (
                         <div
                             key={config.id}
                             className="ui-config-card min-w-0 cursor-pointer"
@@ -277,9 +225,57 @@ export function ApiSettings() {
                                 </button>
                             </div>
                         </div>
-                    ))}
+    );
+
+    if (!isLoaded) return null;
+
+    return (
+        <div className="flex flex-col gap-6">
+            <div className="flex items-center">
+                <h2 className="m-0 mx-2 ts-28 font-bold italic leading-none text-black">API Settings</h2>
+            </div>
+
+            {chatConfigs.length === 0 ? (
+                <div className="ui-empty">
+                    <div className="ui-icon-circle">
+                        <AlertCircle size={24} />
+                    </div>
+                    <span className="menu-label font-semibold">没有 API 配置</span>
+                    <span className="menu-desc max-w-[240px]">
+                        配置 API 密钥和模型以连接到 AI 服务。
+                    </span>
+                    <button onClick={() => addConfig("chat")} className="ui-btn ui-btn-primary rounded-[20px] mt-2">
+                        <Plus size={16} /> 添加配置
+                    </button>
+                </div>
+            ) : (
+                <div className="grid grid-cols-2 gap-3">
+                    {chatConfigs.map(renderConfigCard)}
                 </div>
             )}
+
+            <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-3 mx-2">
+                    <div className="min-w-0 flex flex-col">
+                        <span className="menu-label font-semibold">向量模型</span>
+                        <span className="menu-desc">仅用于记忆向量召回，不能聊天，不会出现在各处的 API 选择里。</span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => addConfig("embedding")}
+                        className="ui-btn ui-btn-soft-action shrink-0 rounded-[20px]"
+                    >
+                        <Plus size={15} /> 新增
+                    </button>
+                </div>
+                {embeddingConfigs.length === 0 ? (
+                    <div className="menu-desc mx-2">还没有向量配置。需要向量召回时在这里添加，再到「绑定管理」里选用。</div>
+                ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                        {embeddingConfigs.map(renderConfigCard)}
+                    </div>
+                )}
+            </div>
 
             {editingId && (
                 <div className="modal-overlay modal-overlay-bottom">
@@ -303,6 +299,16 @@ export function ApiSettings() {
                                                 value={config.name || ""}
                                                 onChange={(e) => updateConfig(config.id, { name: e.target.value })}
                                                 placeholder="例如: 我的 OpenAI"
+                                            />
+                                        </div>
+                                        <div className="ui-toggle-row">
+                                            <span className="flex min-w-0 flex-col">
+                                                <span className="menu-label font-medium">向量模型配置</span>
+                                                <span className="menu-desc">只用于记忆向量召回，不能聊天；开启后会移到下方「向量模型」区，并从各处的 API 选择里隐藏。</span>
+                                            </span>
+                                            <Toggle
+                                                checked={isEmbeddingApiConfig(config)}
+                                                onChange={(v) => updateConfig(config.id, { purpose: v ? "embedding" : "chat" })}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -379,7 +385,7 @@ export function ApiSettings() {
                                                         type="text"
                                                         value={config.defaultModel}
                                                         onChange={(e) => updateConfig(config.id, { defaultModel: e.target.value })}
-                                                        placeholder="gpt-4o, claude-3-opus..."
+                                                        placeholder={isEmbeddingApiConfig(config) ? "text-embedding-3-small, BAAI/bge-m3..." : "gpt-4o, claude-3-opus..."}
                                                         className="ui-input flex-1"
                                                     />
                                                 )}
@@ -413,6 +419,8 @@ export function ApiSettings() {
                                             </Alert>
                                         )}
 
+                                        {!isEmbeddingApiConfig(config) && (
+                                            <>
                                         <div
                                             className="ui-toggle-row mt-2 overflow-visible"
                                             style={{ display: "block", position: "relative", height: "auto", flexShrink: 0, padding: "14px 76px 14px 16px" }}
@@ -444,6 +452,8 @@ export function ApiSettings() {
                                                 onChange={(v) => updateConfig(config.id, { preventEmptyGenerateRambling: v })}
                                             />
                                         </div>
+                                            </>
+                                        )}
 
                                     </>
                                 )

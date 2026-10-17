@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type CSSProperties } from "react";
-import { BookOpen, Check, ChevronDown, Code2, SlidersHorizontal, UserRound, X } from "lucide-react";
+import { BookOpen, Check, ChevronDown, Code2, RefreshCw, SlidersHorizontal, UserRound, X } from "lucide-react";
 import { CHAT_APP_SETTINGS_UPDATED_EVENT, loadChatAppSettings } from "@/lib/chat-storage";
 import {
     getFloatingDockState,
@@ -17,10 +17,13 @@ import {
     loadApiConfigs,
     loadBindingConfig,
     loadWorldBooks,
+    saveApiConfigs,
     saveBindingConfig,
     setCharacterBinding,
 } from "@/lib/settings-storage";
 import type { ApiConfig, BindingConfig, BindingSlot, WorldBookConfig } from "@/lib/settings-types";
+import { filterChatApiConfigs } from "@/lib/api-config-kind";
+import { fetchApiModelList } from "@/lib/api-helpers";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
 
@@ -44,6 +47,30 @@ function clampFloatingPosition(value: number, max: number): number {
     return Math.min(Math.max(12, value), max);
 }
 
+const MODEL_CACHE_PREFIX = "quick_action_models_";
+
+function loadCachedModels(configId: string): string[] {
+    try {
+        const raw = localStorage.getItem(`${MODEL_CACHE_PREFIX}${configId}`);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveCachedModels(configId: string, models: string[]) {
+    try {
+        localStorage.setItem(`${MODEL_CACHE_PREFIX}${configId}`, JSON.stringify(models));
+    } catch {
+        // ignore
+    }
+}
+
+function apiLabel(api: Pick<ApiConfig, "name" | "provider" | "defaultModel">): string {
+    return api.name || api.defaultModel || api.provider;
+}
+
 function itemName<T extends { id: string; name?: string }>(items: T[], id?: string): string {
     if (!id) return "";
     return items.find(item => item.id === id)?.name || "已删除的配置";
@@ -62,6 +89,10 @@ export function QuickActionFloat() {
     const [selectedCharId, setSelectedCharId] = useState("");
     const [config, setConfig] = useState<BindingConfig>(EMPTY_BINDING_CONFIG);
     const [apiConfigs, setApiConfigs] = useState<ApiConfig[]>([]);
+    const [modelDraft, setModelDraft] = useState("");
+    const [fetchedModels, setFetchedModels] = useState<Record<string, string[]>>({});
+    const [fetchingModels, setFetchingModels] = useState(false);
+    const [modelNotice, setModelNotice] = useState("");
     const [worldBooks, setWorldBooks] = useState<WorldBookConfig[]>([]);
     const [characters, setCharacters] = useState<Character[]>([]);
     const [floatingPosition, setFloatingPosition] = useState<FloatingPosition | null>(null);
@@ -208,6 +239,60 @@ export function QuickActionFloat() {
     const selectedWorldBookIds = currentSlot.worldBookIds || [];
     const selectedWorldBookNames = selectedWorldBookIds.map(id => itemName(worldBooks, id)).filter(Boolean);
     const inheritedApiName = scope === "character" ? itemName(apiConfigs, config.globalDefaults.apiConfigId) : "";
+    // 向量配置不能聊天，不出现在这里的选择里
+    const chatApiConfigs = useMemo(() => filterChatApiConfigs(apiConfigs), [apiConfigs]);
+    // 当前实际生效的 API：角色层没单独设置时用全局的
+    const effectiveApi = useMemo(() => {
+        const id = currentSlot.apiConfigId || (scope === "character" ? config.globalDefaults.apiConfigId : undefined);
+        return id ? apiConfigs.find(item => item.id === id) ?? null : null;
+    }, [apiConfigs, config.globalDefaults.apiConfigId, currentSlot.apiConfigId, scope]);
+    const effectiveApiId = effectiveApi?.id;
+    const effectiveModel = effectiveApi?.defaultModel ?? "";
+    const modelOptions = useMemo(() => {
+        if (!effectiveApiId) return [];
+        const list = fetchedModels[effectiveApiId] ?? [];
+        return effectiveModel && !list.includes(effectiveModel) ? [effectiveModel, ...list] : list;
+    }, [effectiveApiId, effectiveModel, fetchedModels]);
+
+    useEffect(() => {
+        setModelDraft(effectiveModel);
+    }, [effectiveModel]);
+
+    useEffect(() => {
+        setModelNotice("");
+        if (effectiveApiId) {
+            setFetchedModels(prev => prev[effectiveApiId] ? prev : { ...prev, [effectiveApiId]: loadCachedModels(effectiveApiId) });
+        }
+    }, [effectiveApiId]);
+
+    const updateModel = useCallback((model: string) => {
+        const next = model.trim();
+        if (!effectiveApiId || !next || next === effectiveModel) {
+            setModelDraft(effectiveModel);
+            return;
+        }
+        const nextConfigs = apiConfigs.map(item => item.id === effectiveApiId ? { ...item, defaultModel: next } : item);
+        setApiConfigs(nextConfigs);
+        saveApiConfigs(nextConfigs);
+        setModelDraft(next);
+        setModelNotice(`已切换为 ${next}`);
+    }, [apiConfigs, effectiveApiId, effectiveModel]);
+
+    const refreshModels = useCallback(async () => {
+        if (!effectiveApi || fetchingModels) return;
+        setFetchingModels(true);
+        setModelNotice("");
+        try {
+            const models = await fetchApiModelList(effectiveApi);
+            setFetchedModels(prev => ({ ...prev, [effectiveApi.id]: models }));
+            saveCachedModels(effectiveApi.id, models);
+            setModelNotice(`拉取到 ${models.length} 个模型`);
+        } catch (error) {
+            setModelNotice(`拉取失败：${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            setFetchingModels(false);
+        }
+    }, [effectiveApi, fetchingModels]);
     const inheritedWorldBookNames = scope === "character"
         ? (config.globalDefaults.worldBookIds || []).map(id => itemName(worldBooks, id)).filter(Boolean)
         : [];
@@ -528,9 +613,9 @@ export function QuickActionFloat() {
                                     <span>{inheritApiLabel}</span>
                                     {!currentSlot.apiConfigId ? <Check size={15} /> : null}
                                 </button>
-                                {apiConfigs.length === 0 ? (
+                                {chatApiConfigs.length === 0 ? (
                                     <div className="quick-action-empty">暂无 API 配置</div>
-                                ) : apiConfigs.map(api => (
+                                ) : chatApiConfigs.map(api => (
                                     <button
                                         type="button"
                                         key={api.id}
@@ -539,11 +624,64 @@ export function QuickActionFloat() {
                                         disabled={characterDisabled}
                                         onClick={() => updateApiConfig(api.id)}
                                     >
-                                        <span>{api.name || api.defaultModel || api.provider}</span>
+                                        <span className="quick-action-option-copy">
+                                            <span>{apiLabel(api)}</span>
+                                            <small>{api.defaultModel || "未设置模型"}</small>
+                                        </span>
                                         {currentSlot.apiConfigId === api.id ? <Check size={15} /> : null}
                                     </button>
                                 ))}
                             </div>
+                            {effectiveApi ? (
+                                <div className="quick-action-model" data-disabled={characterDisabled ? "" : undefined}>
+                                    <div className="quick-action-model-label">
+                                        <span>模型</span>
+                                        <small>{scope === "character" && !currentSlot.apiConfigId ? "继承全局配置" : apiLabel(effectiveApi)}</small>
+                                    </div>
+                                    <div className="quick-action-model-row">
+                                        {modelOptions.length > 0 ? (
+                                            <select
+                                                className="quick-action-model-input"
+                                                value={modelOptions.includes(modelDraft) ? modelDraft : effectiveModel}
+                                                disabled={characterDisabled}
+                                                onChange={event => updateModel(event.target.value)}
+                                            >
+                                                {modelOptions.map(model => (
+                                                    <option key={model} value={model}>{model}</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <input
+                                                className="quick-action-model-input"
+                                                value={modelDraft}
+                                                disabled={characterDisabled}
+                                                placeholder="输入模型名，回车确认"
+                                                onChange={event => setModelDraft(event.target.value)}
+                                                onBlur={() => updateModel(modelDraft)}
+                                                onKeyDown={event => {
+                                                    if (event.key === "Enter") {
+                                                        event.preventDefault();
+                                                        updateModel(modelDraft);
+                                                    }
+                                                }}
+                                            />
+                                        )}
+                                        <button
+                                            type="button"
+                                            className="quick-action-model-refresh"
+                                            disabled={characterDisabled || fetchingModels}
+                                            onClick={refreshModels}
+                                            aria-label="拉取模型列表"
+                                            title="拉取模型列表"
+                                        >
+                                            <RefreshCw size={15} className={fetchingModels ? "animate-spin" : ""} />
+                                        </button>
+                                    </div>
+                                    <small className="quick-action-model-hint">
+                                        {modelNotice || "改的是这个 API 配置的默认模型，所有用到它的地方会一起换。"}
+                                    </small>
+                                </div>
+                            ) : null}
                         </section>
 
                         <section className="quick-action-section" data-disabled={characterDisabled ? "" : undefined}>
