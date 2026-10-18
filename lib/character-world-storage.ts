@@ -2,6 +2,7 @@ import { loadCharacters } from "./character-storage";
 import { loadChatContacts } from "./chat-storage";
 import { kvGet, kvSet, registerKvMigration } from "./kv-db";
 import type { Character } from "./character-types";
+import { buildPeerBirthdayLines } from "./special-days";
 import type { MomentComment, MomentLike, MomentPost } from "./moments-types";
 
 const CHARACTER_WORLDS_KEY = "ai_phone_character_worlds_v1";
@@ -389,6 +390,19 @@ export function formatCharacterRelationsForPrompt(characterId: string): string {
     if (briefLines.length > 0) {
         lines.push("与你有关系的角色简介（供你在提及、转述或与其互动时保持其人设一致）：");
         lines.push(...briefLines);
+    }
+
+    // 同世界其他角色近 30 天内的生日：让大家知道彼此的生日（私聊、日历生成等凡是带「角色关系」的请求都能读到）。
+    // 带具体日期 + 星期几，日期以这里为准，避免模型把「十一天后」说成「下周」。
+    const peers = group.memberIds
+        .filter(memberId => memberId !== characterId)
+        .map(memberId => characterById.get(memberId))
+        .filter((peer): peer is Character => Boolean(peer))
+        .map(peer => ({ name: peer.name, specialDays: peer.specialDays }));
+    const peerBirthdays = buildPeerBirthdayLines(peers, { timeZone: characterById.get(characterId)?.timeZone });
+    if (peerBirthdays.length > 0) {
+        lines.push("同世界角色近期的生日（你知道这些日子；临近时可以自然地提起或悄悄准备，不必每次都说；日期以这里写的为准）：");
+        lines.push(...peerBirthdays.map(text => `- ${text}`));
     }
 
     return lines.join("\n");
