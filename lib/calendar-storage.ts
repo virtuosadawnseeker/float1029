@@ -385,8 +385,8 @@ export function validateScheduleDraft(item: {
   if (!item.date || !/^\d{4}-\d{2}-\d{2}$/.test(item.date)) return "请选择日期";
   if (!start || !end) return "请输入正确的时间格式";
   const isMultiDay = Boolean(item.endDate) && (item.endDate as string) > item.date;
-  // 跨天时结束钟点可以早于开始钟点（跨夜），不能完全相同；同一天内必须晚于开始
-  if (isMultiDay ? start === end : start >= end) return "结束时间需要晚于开始时间";
+  // 跨天是连续时段，结束钟点可以早于开始钟点（比如 19:00 → 次日 17:00）；同一天内必须晚于开始
+  if (!isMultiDay && start >= end) return "结束时间需要晚于开始时间";
   if (!item.title.trim()) return "请输入事项";
   return null;
 }
@@ -396,15 +396,11 @@ export type ScheduleDaySegment = { dayOffset: number; startTime: string; endTime
 /**
  * 把「开始日期 + 开始时间 → 结束日期 + 结束时间」拆成每天一段（日程只能存在同一天内）。
  * - 单天：一段。
- * - 跨天且结束钟点晚于开始钟点：沿用旧行为，每天重复同一个钟点段（比如连续 5 天 19:00-20:00）。
- * - 跨天且结束钟点不晚于开始钟点：真正的跨夜。首日 开始→23:59，中间天 00:00→23:59，末日 00:00→结束。
+ * - 跨天：真正的连续时段。首日 开始→23:59，中间天 00:00→23:59，末日 00:00→结束。
  *   末日结束为 00:00 时没有实际内容，会省略末日。
  */
 export function splitScheduleAcrossDays(startTime: string, endTime: string, dayCount: number): ScheduleDaySegment[] {
   if (dayCount <= 1) return [{ dayOffset: 0, startTime, endTime }];
-  if (timeToMinutes(endTime) > timeToMinutes(startTime)) {
-    return Array.from({ length: dayCount }, (_, dayOffset) => ({ dayOffset, startTime, endTime }));
-  }
   const segments: ScheduleDaySegment[] = [{ dayOffset: 0, startTime, endTime: "23:59" }];
   for (let dayOffset = 1; dayOffset < dayCount - 1; dayOffset++) {
     segments.push({ dayOffset, startTime: "00:00", endTime: "23:59" });
