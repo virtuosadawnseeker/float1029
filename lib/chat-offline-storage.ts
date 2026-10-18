@@ -198,18 +198,40 @@ function escapeTagName(tag: string): string {
     return tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function extractXmlField(rawText: string, tags: string[]): string {
+function extractXmlField(rawText: string, tags: string[], pick: "first" | "last" = "first"): string {
     const candidates = tags
         .map((tag) => tag.trim())
         .filter(Boolean)
         .filter((tag, index, list) => list.indexOf(tag) === index);
     for (const tag of candidates) {
+        if (pick === "last") {
+            const content = extractLastTagBlock(rawText, tag);
+            if (content) return content;
+            continue;
+        }
         const escaped = escapeTagName(tag);
         const match = rawText.match(new RegExp(`<${escaped}>([\\s\\S]*?)</${escaped}>`, "i"));
         const content = match?.[1]?.trim();
         if (content) return content;
     }
     return "";
+}
+
+/**
+ * 取最后一对 <tag>…</tag> 之间的内容。
+ * 有的模型会把思考过程写进正文（「检查约束：只有 <content> 和 <summary>」），
+ * 思考里提到的标签名会被「第一个开标签」误当成正文起点，导致思考过程混进正文。
+ * 取最后一个闭标签，再往前找离它最近的开标签，就能避开前面这些「提到标签」的文字。
+ */
+function extractLastTagBlock(rawText: string, tag: string): string {
+    const open = `<${tag}>`;
+    const close = `</${tag}>`;
+    const lower = rawText.toLowerCase();
+    const closeIndex = lower.lastIndexOf(close.toLowerCase());
+    if (closeIndex < 0) return "";
+    const openIndex = lower.lastIndexOf(open.toLowerCase(), closeIndex);
+    if (openIndex < 0) return "";
+    return rawText.slice(openIndex + open.length, closeIndex).trim();
 }
 
 function stripXmlField(rawText: string, tag: string): string {
@@ -229,8 +251,8 @@ export function extractThinkingTag(rawText: string, tag?: string): string {
 export function parseOfflineResponse(rawText: string, summaryTag: string): ParsedOfflineResponse {
     const trimmed = rawText.trim();
     const effectiveSummaryTag = summaryTag.trim() || "summary";
-    const summary = extractXmlField(trimmed, [effectiveSummaryTag, "summary"]);
-    let content = extractXmlField(trimmed, ["content"]);
+    const summary = extractXmlField(trimmed, [effectiveSummaryTag, "summary"], "last");
+    let content = extractXmlField(trimmed, ["content"], "last");
     if (!content) {
         // 无 <content> 标签时回退到剥掉摘要标签后的全文
         content = stripXmlField(stripXmlField(trimmed, effectiveSummaryTag), "summary");
