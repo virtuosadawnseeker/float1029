@@ -18,6 +18,7 @@ import {
   saveCalendarConfig,
   upsertCalendarScheduleItem,
   validateScheduleDraft,
+  splitScheduleAcrossDays,
 } from "@/lib/calendar-storage";
 import { createDefaultScheduleDraft, generateWeeklyCalendarSchedule } from "@/lib/calendar-engine";
 import { loadCharacters } from "@/lib/character-storage";
@@ -341,26 +342,27 @@ export function PhoneCalendarApp({
         deleteCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, originalWeekStart, editingItem.id);
       }
     }
-    // 多天：第一天沿用原 id（编辑场景），其余每天各生成一条独立日程
-    for (let offset = 0; offset < dayCount; offset++) {
+    // 多天：按每天一段拆开（跨夜或每天重复，见 splitScheduleAcrossDays）；第一段沿用原 id（编辑场景）
+    const segments = splitScheduleAcrossDays(editingItem.startTime, editingItem.endTime, dayCount);
+    segments.forEach((segment, index) => {
       const day = parseIsoDate(startDate);
-      day.setDate(day.getDate() + offset);
+      day.setDate(day.getDate() + segment.dayOffset);
       const dayIso = formatIsoDate(day);
       upsertCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, getWeekStartIso(parseIsoDate(dayIso)), {
-        id: offset === 0 ? editingItem.id : undefined,
+        id: index === 0 ? editingItem.id : undefined,
         date: dayIso,
-        startTime: editingItem.startTime,
-        endTime: editingItem.endTime,
+        startTime: segment.startTime,
+        endTime: segment.endTime,
         location: editingItem.location,
         title: editingItem.title,
         emoji: sanitizeScheduleEmoji(editingItem.emoji),
         source: "manual",
-        colorKey: editingItem.colorKey ?? pickScheduleColorKey(editingItem.startTime),
+        colorKey: editingItem.colorKey ?? pickScheduleColorKey(segment.startTime),
       });
-    }
+    });
     setEditingItem(null);
     refreshPlans();
-    onNotice?.(dayCount > 1 ? `已创建 ${dayCount} 天的日程` : "日程已保存");
+    onNotice?.(dayCount > 1 ? `已创建 ${segments.length} 天的日程` : "日程已保存");
   };
 
   const handleDeleteItem = () => {

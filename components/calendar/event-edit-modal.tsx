@@ -106,6 +106,14 @@ export function CalendarEventEditModal({
             </div>
           </div>
 
+          {(draft.endDate || draft.date) > draft.date && (
+            <div className="menu-desc ml-1 -mt-1">
+              {draft.endTime > draft.startTime
+                ? "跨多天：每天都会各创建一条同样钟点的日程。"
+                : "跨夜：会按天拆开，首日从开始时间到 23:59，末日从 00:00 到结束时间。"}
+            </div>
+          )}
+
           <div className="flex flex-col gap-1">
             <label className="menu-desc ml-1">事项</label>
             <Input
