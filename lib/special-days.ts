@@ -223,3 +223,44 @@ export function buildSpecialDaysPrompt(days: SpecialDay[] | undefined, options: 
   if (laterLines.length > 0) blocks.push(renderPromptTemplate(templates.later, laterLines, options.charName, userName));
   return blocks.join("\n\n");
 }
+
+const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+export type PeerBirthdaySource = {
+  name: string;
+  specialDays?: SpecialDay[];
+};
+
+/**
+ * 同世界其他角色的生日（30 天内），每条一行，按临近程度排序；没有就返回空数组。
+ * 只取「角色生日」：纪念日是某个角色和用户之间的事，用户生日在每个角色自己的重要日子里已有。
+ * 每条都带具体日期 + 星期几，避免模型把「十一天后」说成含糊的「下周」。
+ */
+export function buildPeerBirthdayLines(
+  peers: PeerBirthdaySource[],
+  options: { now?: Date; timeZone?: string } = {},
+): string[] {
+  const now = options.now ?? new Date();
+  const today = getTodayInZone(now, options.timeZone);
+  const items: Array<{ inDays: number; text: string }> = [];
+
+  for (const peer of peers) {
+    for (const sd of peer.specialDays ?? []) {
+      if (sd.kind !== "char_birthday") continue;
+      const { inDays, year } = nextOccurrence(sd, today);
+      if (inDays > LOOKAHEAD_DAYS) continue;
+      const day = Math.min(sd.day, daysInMonth(year, sd.month));
+      const weekday = WEEKDAY_LABELS[new Date(Date.UTC(year, sd.month - 1, day)).getUTCDay()];
+      const dateText = `${sd.month}月${day}日（${weekday}）`;
+      const note = yearsNote(sd, year);
+      items.push({
+        inDays,
+        text: inDays === 0
+          ? `${peer.name}的生日${note}：就是今天，${dateText}`
+          : `${peer.name}的生日${note}：${dateText}，还有 ${inDays} 天`,
+      });
+    }
+  }
+
+  return items.sort((a, b) => a.inDays - b.inDays).map(item => item.text);
+}
