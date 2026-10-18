@@ -7,6 +7,7 @@
 
 import { loadCharacters } from "./character-storage";
 import { loadCalendarWeekPlan } from "./calendar-storage";
+import { getCharacterWorldGroup, type CharacterWorldGroup } from "./character-world-storage";
 import { formatIsoDate, getWeekStartIso, getWeekdayLabel } from "./calendar-utils";
 
 export type PublicFigureScheduleItem = {
@@ -96,8 +97,11 @@ export function formatCelebrityCommentRules(
 export function buildCelebrityCommentRules(actingCharacterId?: string): string {
   try {
     const characters = loadCharacters();
+    // 只算同一个世界里的公众人物：兽人世界的角色刷小红书，不会遇到现代世界的明星
+    const worldMemberIds = actingCharacterId ? getCharacterWorldGroup(actingCharacterId)?.memberIds : undefined;
     const figures = characters
       .filter(character => character.publicProfile?.trim())
+      .filter(character => !worldMemberIds || worldMemberIds.includes(character.id))
       .map(character => ({ name: character.name, publicProfile: character.publicProfile!.trim() }));
     const actingName = characters.find(character => character.id === actingCharacterId)?.name;
     return formatCelebrityCommentRules(figures, actingName);
@@ -113,13 +117,16 @@ function addDaysIso(date: Date, days: number): string {
 }
 
 /** 读取本地的公众人物与日程，拼出内容流用的热点素材；没有公众人物时返回空串。 */
-export function buildPublicFigureFeedContext(now = new Date()): string {
+export function buildPublicFigureFeedContext(now = new Date(), participantCharacterIds: string[] = []): string {
   try {
+    const worlds = resolveFeedWorlds(participantCharacterIds);
+    const memberIds = worlds.length > 0 ? new Set(worlds.flatMap(world => world.memberIds)) : null;
     const todayWeek = getWeekStartIso(now);
     const tomorrow = addDaysIso(now, 1);
     const tomorrowWeek = getWeekStartIso(new Date(`${tomorrow}T00:00:00`));
     const figures: PublicFigureFeedInput[] = loadCharacters()
       .filter(character => character.publicProfile?.trim())
+      .filter(character => !memberIds || memberIds.has(character.id))
       .map(character => {
         const weeks = Array.from(new Set([todayWeek, tomorrowWeek]));
         const items = weeks.flatMap(weekStart => loadCalendarWeekPlan("character", character.id, weekStart)?.items ?? []);
@@ -140,4 +147,38 @@ export function buildPublicFigureFeedContext(now = new Date()): string {
     console.warn("[Xiaohongshu] 读取公众人物素材失败，按普通内容流生成：", error);
     return "";
   }
+}
+
+/**
+ * 这个小红书号「所在的世界」：由参与小红书的角色决定。
+ * 参与角色都属于同一个世界（或几个世界）时，路人内容和公众人物只取这些世界；
+ * 没有参与角色、或角色没有归属世界时返回空数组，保持原来的不分世界行为。
+ */
+export function resolveFeedWorlds(participantCharacterIds: string[]): CharacterWorldGroup[] {
+  try {
+    const worlds: CharacterWorldGroup[] = [];
+    for (const id of participantCharacterIds) {
+      const world = getCharacterWorldGroup(id);
+      if (world && !worlds.some(entry => entry.id === world.id)) worlds.push(world);
+    }
+    return worlds;
+  } catch (error) {
+    console.warn("[Xiaohongshu] 读取世界分组失败，按不分世界生成：", error);
+    return [];
+  }
+}
+
+/** 纯格式化：告诉路人内容流「这是哪个世界」。世界没写简介时返回空串。 */
+export function formatFeedWorldContext(worlds: { name: string; description: string }[]): string {
+  const usable = worlds.filter(world => world.description.trim());
+  if (usable.length === 0) return "";
+  return [
+    "【这个小红书所在的世界】",
+    ...usable.map(world => `- ${world.name}：${world.description.trim().slice(0, 600)}`),
+    "路人笔记的话题、生活细节、烦恼、梗和用词，都要像这个世界里的普通人在写，把世界的日常当作理所当然，不要解释设定，也不要出现不属于这个世界的东西。",
+  ].join("\n");
+}
+
+export function buildFeedWorldContext(participantCharacterIds: string[]): string {
+  return formatFeedWorldContext(resolveFeedWorlds(participantCharacterIds));
 }
