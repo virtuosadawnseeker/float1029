@@ -1,7 +1,7 @@
 import { getChatImageFromIndexedDB } from "./chat-asset-storage";
 import { ChatEngineError, previewMessagesForApi, sendLLMRequest } from "./chat-engine";
 import { loadCharacters } from "./character-storage";
-import { buildCelebrityCommentRules, buildPublicFigureFeedContext } from "./xiaohongshu-public-figures";
+import { buildCelebrityCommentRules, buildFeedWorldContext, buildPublicFigureFeedContext } from "./xiaohongshu-public-figures";
 import type { Character } from "./character-types";
 import { assemblePromptPayload, type AssemblerInput, type LLMContentPart, type LLMMessage } from "./llm-prompt-assembler";
 import { DEFAULT_XIAOHONGSHU_BILINGUAL_PROMPT, resolveBilingualPrompt } from "./bilingual-prompt-defaults";
@@ -1164,6 +1164,7 @@ export async function generateXiaohongshuNpcFeed(
   followedAccounts: XiaohongshuAccount[] = [],
   userIpLocation = "",
   userXiaohongshuName = "",
+  participantCharacterIds: string[] = [],
 ): Promise<XiaohongshuNote[]> {
   const apiConfig = resolveGlobalApiConfig();
   if (!apiConfig) throw new ChatEngineError("未配置全局默认 API。");
@@ -1175,7 +1176,8 @@ export async function generateXiaohongshuNpcFeed(
     ),
     formatNpcFeedUserContext(userIpLocation),
     formatFollowedAccountsForPrompt(followedAccounts),
-    buildPublicFigureFeedContext(),
+    buildFeedWorldContext(participantCharacterIds),
+    buildPublicFigureFeedContext(new Date(), participantCharacterIds),
   ].filter(Boolean).join("\n\n");
   const raw = await sendLLMRequest(
     apiConfig,

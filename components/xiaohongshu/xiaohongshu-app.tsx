@@ -1441,6 +1441,7 @@ export function XiaohongshuApp({ onClose, onNotice, visible = true, onIdle, onBu
       baseState.socialGraph.following.filter(account => account.type === "npc"),
       baseState.profile.ipLocation,
       baseState.profile.nickname,
+      activeSettings.participantCharacterIds,
     );
     if (generated.length === 0) throw new Error("没有解析到小红书笔记。");
     return {
