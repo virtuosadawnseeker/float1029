@@ -8,6 +8,7 @@ import {
   isCalendarColorKey,
   isCalendarTimeRangeAllowed,
   normalizeTime,
+  parseIsoDate,
   pickScheduleColorKey,
   sanitizeScheduleEmoji,
   sortScheduleItems,
@@ -374,6 +375,7 @@ export function cloneWeekPlanWithManualEdits(
 
 export function validateScheduleDraft(item: {
   date: string;
+  endDate?: string;
   startTime: string;
   endTime: string;
   location: string;
@@ -383,9 +385,61 @@ export function validateScheduleDraft(item: {
   const end = normalizeTime(item.endTime);
   if (!item.date || !/^\d{4}-\d{2}-\d{2}$/.test(item.date)) return "请选择日期";
   if (!start || !end) return "请输入正确的时间格式";
-  if (start >= end) return "结束时间需要晚于开始时间";
+  const isMultiDay = Boolean(item.endDate) && (item.endDate as string) > item.date;
+  // 跨天是连续时段，结束钟点可以早于开始钟点（比如 19:00 → 次日 17:00）；同一天内必须晚于开始
+  if (!isMultiDay && start >= end) return "结束时间需要晚于开始时间";
   if (!item.title.trim()) return "请输入事项";
   return null;
+}
+
+export type ScheduleDaySegment = { dayOffset: number; startTime: string; endTime: string };
+
+/**
+ * 把「开始日期 + 开始时间 → 结束日期 + 结束时间」拆成每天一段（日程只能存在同一天内）。
+ * - 单天：一段。
+ * - 跨天：真正的连续时段。首日 开始→23:59，中间天 00:00→23:59，末日 00:00→结束。
+ *   末日结束为 00:00 时没有实际内容，会省略末日。
+ */
+export function splitScheduleAcrossDays(startTime: string, endTime: string, dayCount: number): ScheduleDaySegment[] {
+  if (dayCount <= 1) return [{ dayOffset: 0, startTime, endTime }];
+  const segments: ScheduleDaySegment[] = [{ dayOffset: 0, startTime, endTime: "23:59" }];
+  for (let dayOffset = 1; dayOffset < dayCount - 1; dayOffset++) {
+    segments.push({ dayOffset, startTime: "00:00", endTime: "23:59" });
+  }
+  if (timeToMinutes(endTime) > 0) segments.push({ dayOffset: dayCount - 1, startTime: "00:00", endTime });
+  return segments;
+}
+
+export type CalendarRepeatKind = "none" | "daily" | "weekdays" | "weekly";
+
+export const CALENDAR_REPEAT_LABELS: Record<CalendarRepeatKind, string> = {
+  none: "不重复",
+  daily: "每天",
+  weekdays: "工作日（周一至周五）",
+  weekly: "每周",
+};
+
+/** 一次最多生成的重复次数 */
+export const MAX_REPEAT_OCCURRENCES = 100;
+
+/**
+ * 重复日程每次出现的开始日期（含第一次，含 untilDate 当天）。
+ * 超过 MAX_REPEAT_OCCURRENCES 时返回 null，调用方应提示缩短范围。
+ */
+export function listRepeatStartDates(startDate: string, repeat: CalendarRepeatKind, untilDate: string): string[] | null {
+  if (repeat === "none" || untilDate <= startDate) return [startDate];
+  const dates: string[] = [];
+  const cursor = parseIsoDate(startDate);
+  const until = parseIsoDate(untilDate);
+  while (cursor <= until) {
+    const weekday = cursor.getDay();
+    if (repeat !== "weekdays" || (weekday >= 1 && weekday <= 5)) {
+      dates.push(formatIsoDate(cursor));
+      if (dates.length > MAX_REPEAT_OCCURRENCES) return null;
+    }
+    cursor.setDate(cursor.getDate() + (repeat === "weekly" ? 7 : 1));
+  }
+  return dates;
 }
 
 export function getCalendarOwnerLabel(ownerType: CalendarOwnerType, ownerName: string): string {

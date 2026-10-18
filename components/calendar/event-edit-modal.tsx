@@ -1,15 +1,20 @@
 "use client";
 
 import { Check, ChevronLeft, Trash2 } from "lucide-react";
-import { Input } from "../ui/form";
+import { Input, Select } from "../ui/form";
 import type { CalendarColorKey } from "@/lib/calendar-types";
 import { CALENDAR_COLOR_KEYS } from "@/lib/calendar-utils";
+import { CALENDAR_REPEAT_LABELS, type CalendarRepeatKind } from "@/lib/calendar-storage";
 
 export type CalendarEventDraft = {
   id?: string;
   date: string;
   /** 结束日期（含当天）；留空视为单天。跨多天时保存会按天生成日程 */
   endDate?: string;
+  /** 重复方式（只在新增时可选）；保存时按重复规则一次生成多条日程 */
+  repeat?: CalendarRepeatKind;
+  /** 重复到哪一天（含当天） */
+  repeatUntil?: string;
   startTime: string;
   endTime: string;
   location: string;
@@ -105,6 +110,49 @@ export function CalendarEventEditModal({
               />
             </div>
           </div>
+
+          {(draft.endDate || draft.date) > draft.date && (
+            <div className="menu-desc ml-1 -mt-1">
+              连续时段：会按天拆开，首日从开始时间到 23:59，中间天全天，末日从 00:00 到结束时间。
+            </div>
+          )}
+
+          {!draft.id && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="menu-desc ml-1">重复</label>
+                <Select
+                  value={draft.repeat ?? "none"}
+                  onChange={e => {
+                    const repeat = e.target.value as CalendarRepeatKind;
+                    // 选了重复但还没定结束日期时，默认重复 4 周
+                    let repeatUntil = draft.repeatUntil;
+                    if (repeat !== "none" && !repeatUntil) {
+                      const base = new Date(`${draft.endDate || draft.date}T00:00:00`);
+                      base.setDate(base.getDate() + 28);
+                      repeatUntil = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+                    }
+                    onChange({ ...draft, repeat, repeatUntil });
+                  }}
+                >
+                  {(Object.keys(CALENDAR_REPEAT_LABELS) as CalendarRepeatKind[]).map(kind => (
+                    <option key={kind} value={kind}>{CALENDAR_REPEAT_LABELS[kind]}</option>
+                  ))}
+                </Select>
+              </div>
+              {draft.repeat && draft.repeat !== "none" && (
+                <div className="flex flex-col gap-1">
+                  <label className="menu-desc ml-1">重复到</label>
+                  <Input
+                    type="date"
+                    value={draft.repeatUntil || ""}
+                    min={draft.endDate || draft.date}
+                    onChange={e => onChange({ ...draft, repeatUntil: e.target.value })}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-col gap-1">
             <label className="menu-desc ml-1">事项</label>
