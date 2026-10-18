@@ -1045,7 +1045,8 @@ export function setCharacterBinding(config: BindingConfig, binding: CharacterBin
 }
 
 /**
- * Cascade resolution: global defaults → character defaults → app overrides.
+ * Cascade resolution: global defaults → character defaults → app defaults (all characters)
+ * → character app overrides. Without a characterId: global defaults → app defaults.
  * undefined/empty fields mean "inherit from parent level".
  */
 export function resolveBinding(
@@ -1074,7 +1075,14 @@ export function resolveBinding(
         if (slot.regexIds && slot.regexIds.length > 0) resolved.regexIds = [...slot.regexIds];
     };
 
-    if (!characterId) return resolved;
+    // 没有指定角色的调用（用户自己的日历、路人内容等）也要吃到「所有角色」的应用默认，
+    // 否则会直接落回全局 API。
+    if (!characterId) {
+        if (appId && config.appDefaults?.[appId]) {
+            applySlot(config.appDefaults[appId]!);
+        }
+        return resolved;
+    }
 
     // Apply character defaults
     const charBinding = config.characterBindings.find(b => b.characterId === characterId);

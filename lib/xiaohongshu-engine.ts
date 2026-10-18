@@ -812,11 +812,16 @@ function prependXiaohongshuUserIdentityHint(context: string, hint: string): stri
   return [hint.trim(), context.trim()].filter(Boolean).join("\n\n");
 }
 
+/**
+ * 小红书里没有指定角色的调用（路人帖、路人评论、路人私信）用的 API：
+ * 先看「小红书」的应用默认（设置页「各应用统一设置」），没有再退回全局 API。
+ */
 function resolveGlobalApiConfig(): ApiConfig | null {
   const configs = loadApiConfigs();
   const binding = loadBindingConfig();
-  if (binding.globalDefaults.apiConfigId) {
-    return configs.find(config => config.id === binding.globalDefaults.apiConfigId) ?? null;
+  const slot = resolveBinding(binding, undefined, "xiaohongshu");
+  if (slot.apiConfigId) {
+    return configs.find(config => config.id === slot.apiConfigId) ?? null;
   }
   return configs[0] ?? null;
 }
