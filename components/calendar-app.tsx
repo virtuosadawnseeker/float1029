@@ -19,6 +19,8 @@ import {
   upsertCalendarScheduleItem,
   validateScheduleDraft,
   splitScheduleAcrossDays,
+  listRepeatStartDates,
+  MAX_REPEAT_OCCURRENCES,
 } from "@/lib/calendar-storage";
 import { createDefaultScheduleDraft, generateWeeklyCalendarSchedule } from "@/lib/calendar-engine";
 import { loadCharacters } from "@/lib/character-storage";
@@ -342,27 +344,55 @@ export function PhoneCalendarApp({
         deleteCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, originalWeekStart, editingItem.id);
       }
     }
-    // 多天：按每天一段拆开（跨夜或每天重复，见 splitScheduleAcrossDays）；第一段沿用原 id（编辑场景）
+    // 重复（只在新增时可选）：先算出每次出现的开始日期
+    const repeat = editingItem.id ? "none" : (editingItem.repeat ?? "none");
+    let occurrenceStarts = [startDate];
+    if (repeat !== "none") {
+      const repeatUntil = editingItem.repeatUntil || "";
+      if (!repeatUntil || repeatUntil <= endDate) {
+        onNotice?.("请选择晚于结束日期的「重复到」日期");
+        return;
+      }
+      if (repeat !== "weekly" && dayCount > 1) {
+        onNotice?.("跨天日程只能按「每周」重复");
+        return;
+      }
+      if (repeat === "weekly" && dayCount > 7) {
+        onNotice?.("跨度超过 7 天的日程不能按每周重复");
+        return;
+      }
+      const dates = listRepeatStartDates(startDate, repeat, repeatUntil);
+      if (!dates) {
+        onNotice?.(`一次最多重复 ${MAX_REPEAT_OCCURRENCES} 次，请缩短「重复到」的日期`);
+        return;
+      }
+      occurrenceStarts = dates;
+    }
+    // 跨天按连续时段拆成每天一段（见 splitScheduleAcrossDays）；第一段沿用原 id（编辑场景）
     const segments = splitScheduleAcrossDays(editingItem.startTime, editingItem.endTime, dayCount);
-    segments.forEach((segment, index) => {
-      const day = parseIsoDate(startDate);
-      day.setDate(day.getDate() + segment.dayOffset);
-      const dayIso = formatIsoDate(day);
-      upsertCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, getWeekStartIso(parseIsoDate(dayIso)), {
-        id: index === 0 ? editingItem.id : undefined,
-        date: dayIso,
-        startTime: segment.startTime,
-        endTime: segment.endTime,
-        location: editingItem.location,
-        title: editingItem.title,
-        emoji: sanitizeScheduleEmoji(editingItem.emoji),
-        source: "manual",
-        colorKey: editingItem.colorKey ?? pickScheduleColorKey(segment.startTime),
+    let created = 0;
+    occurrenceStarts.forEach((occurrenceStart, occurrenceIndex) => {
+      segments.forEach((segment, index) => {
+        const day = parseIsoDate(occurrenceStart);
+        day.setDate(day.getDate() + segment.dayOffset);
+        const dayIso = formatIsoDate(day);
+        upsertCalendarScheduleItem(selectedOwner.ownerType, selectedOwner.ownerId, getWeekStartIso(parseIsoDate(dayIso)), {
+          id: occurrenceIndex === 0 && index === 0 ? editingItem.id : undefined,
+          date: dayIso,
+          startTime: segment.startTime,
+          endTime: segment.endTime,
+          location: editingItem.location,
+          title: editingItem.title,
+          emoji: sanitizeScheduleEmoji(editingItem.emoji),
+          source: "manual",
+          colorKey: editingItem.colorKey ?? pickScheduleColorKey(segment.startTime),
+        });
+        created += 1;
       });
     });
     setEditingItem(null);
     refreshPlans();
-    onNotice?.(dayCount > 1 ? `已创建 ${segments.length} 天的日程` : "日程已保存");
+    onNotice?.(created > 1 ? `已创建 ${created} 条日程` : "日程已保存");
   };
 
   const handleDeleteItem = () => {

@@ -8,6 +8,7 @@ import {
   isCalendarColorKey,
   isCalendarTimeRangeAllowed,
   normalizeTime,
+  parseIsoDate,
   pickScheduleColorKey,
   sanitizeScheduleEmoji,
   sortScheduleItems,
@@ -407,6 +408,38 @@ export function splitScheduleAcrossDays(startTime: string, endTime: string, dayC
   }
   if (timeToMinutes(endTime) > 0) segments.push({ dayOffset: dayCount - 1, startTime: "00:00", endTime });
   return segments;
+}
+
+export type CalendarRepeatKind = "none" | "daily" | "weekdays" | "weekly";
+
+export const CALENDAR_REPEAT_LABELS: Record<CalendarRepeatKind, string> = {
+  none: "不重复",
+  daily: "每天",
+  weekdays: "工作日（周一至周五）",
+  weekly: "每周",
+};
+
+/** 一次最多生成的重复次数 */
+export const MAX_REPEAT_OCCURRENCES = 100;
+
+/**
+ * 重复日程每次出现的开始日期（含第一次，含 untilDate 当天）。
+ * 超过 MAX_REPEAT_OCCURRENCES 时返回 null，调用方应提示缩短范围。
+ */
+export function listRepeatStartDates(startDate: string, repeat: CalendarRepeatKind, untilDate: string): string[] | null {
+  if (repeat === "none" || untilDate <= startDate) return [startDate];
+  const dates: string[] = [];
+  const cursor = parseIsoDate(startDate);
+  const until = parseIsoDate(untilDate);
+  while (cursor <= until) {
+    const weekday = cursor.getDay();
+    if (repeat !== "weekdays" || (weekday >= 1 && weekday <= 5)) {
+      dates.push(formatIsoDate(cursor));
+      if (dates.length > MAX_REPEAT_OCCURRENCES) return null;
+    }
+    cursor.setDate(cursor.getDate() + (repeat === "weekly" ? 7 : 1));
+  }
+  return dates;
 }
 
 export function getCalendarOwnerLabel(ownerType: CalendarOwnerType, ownerName: string): string {
