@@ -64,7 +64,8 @@ import type { UserIdentity } from "@/components/settings/user-identity";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
 
-type Level = "global" | "character" | "app";
+// allApps = 「各应用统一设置」应用列表；app 层在没选角色（selectedCharId 为空）时，编辑的是所有角色共用的应用默认（appDefaults）
+type Level = "global" | "character" | "app" | "allApps";
 type SingleBindingField = "apiConfigId" | "voiceConfigId" | "presetId" | "userIdentityId";
 type MultiBindingField = "worldBookIds" | "regexIds";
 type BindingField = SingleBindingField | MultiBindingField;
@@ -269,14 +270,28 @@ export function BindingManager() {
                 setLevel("global");
                 setSelectedCharId("");
             });
-        } else if (level === "app") {
-            const charName = characters.find(c => c.id === selectedCharId)?.name || "角色";
-            const appLabel = selectedAppId ? getAppLabel(selectedAppId) : "";
-            setSubpageTitle(`${appLabel} · ${charName}`);
+        } else if (level === "allApps") {
+            setSubpageTitle("各应用统一设置");
             setOverrideBack(() => () => {
-                setLevel("character");
+                setLevel("global");
                 setSelectedAppId(null);
             });
+        } else if (level === "app") {
+            const appLabel = selectedAppId ? getAppLabel(selectedAppId) : "";
+            if (!selectedCharId) {
+                setSubpageTitle(`${appLabel} · 所有角色`);
+                setOverrideBack(() => () => {
+                    setLevel("allApps");
+                    setSelectedAppId(null);
+                });
+            } else {
+                const charName = characters.find(c => c.id === selectedCharId)?.name || "角色";
+                setSubpageTitle(`${appLabel} · ${charName}`);
+                setOverrideBack(() => () => {
+                    setLevel("character");
+                    setSelectedAppId(null);
+                });
+            }
         }
     }, [level, selectedCharId, selectedAppId, characters, customApps, setSubpageTitle, setOverrideBack]);
 
@@ -299,6 +314,13 @@ export function BindingManager() {
 
     const updateAppSlot = (field: keyof BindingSlot, value: string | string[] | undefined) => {
         if (!selectedAppId) return;
+        if (!selectedCharId) {
+            // 所有角色共用的应用默认
+            const appDefaults = { ...(config.appDefaults ?? {}) };
+            appDefaults[selectedAppId] = { ...(appDefaults[selectedAppId] ?? {}), [field]: value || undefined };
+            persist({ ...config, appDefaults });
+            return;
+        }
         const binding = getCharacterBinding(config, selectedCharId);
         const appSlot = binding.appOverrides[selectedAppId] || {};
         const newAppSlot = { ...appSlot, [field]: value || undefined };
@@ -309,6 +331,16 @@ export function BindingManager() {
 
     const resetAppBinding = () => {
         if (!selectedAppId) return;
+        if (!selectedCharId) {
+            const appDefaults = { ...(config.appDefaults ?? {}) };
+            // 只清掉 API：这一层在界面里只开放 API，自定义应用安装时写入的世界书/正则默认要保留
+            const rest = { ...(appDefaults[selectedAppId] ?? {}) };
+            delete rest.apiConfigId;
+            if (Object.keys(rest).length > 0) appDefaults[selectedAppId] = rest;
+            else delete appDefaults[selectedAppId];
+            persist({ ...config, appDefaults });
+            return;
+        }
         const binding = getCharacterBinding(config, selectedCharId);
         const newOverrides = { ...binding.appOverrides };
         delete newOverrides[selectedAppId];
@@ -318,6 +350,7 @@ export function BindingManager() {
 
     const getCurrentSlot = (): BindingSlot => {
         if (level === "global") return config.globalDefaults;
+        if (level === "app" && selectedAppId && !selectedCharId) return config.appDefaults?.[selectedAppId] || {};
         const binding = getCharacterBinding(config, selectedCharId);
         if (level === "character") return binding.defaults;
         if (level === "app" && selectedAppId) return binding.appOverrides[selectedAppId] || {};
@@ -338,6 +371,8 @@ export function BindingManager() {
     const getInheritedSlot = (): BindingSlot => {
         if (level === "global") return {};
         const inherited = mergeSlotInto({}, config.globalDefaults);
+        // 所有角色共用的应用默认：上级只有全局
+        if (level === "app" && !selectedCharId) return inherited;
         const binding = getCharacterBinding(config, selectedCharId);
         if (level === "character") return inherited;
         mergeSlotInto(inherited, binding.defaults);
@@ -355,6 +390,7 @@ export function BindingManager() {
 
     const getInheritLabel = (): string => {
         if (level === "character") return "继承全局";
+        if (level === "app" && !selectedCharId) return "继承全局";
         if (level === "app") return "继承上级绑定";
         return "";
     };
@@ -377,6 +413,12 @@ export function BindingManager() {
         if ((!appId || canBindRegexInApp(appId)) && slot.regexIds && slot.regexIds.length > 0) count++;
         return count;
     };
+
+    // 「各应用统一设置」里已经设了 API 的应用数
+    const countAppDefaultApis = (): number => (
+        Object.values((config.appDefaults ?? {}) as Partial<Record<string, BindingSlot>>)
+            .filter(slot => Boolean(slot?.apiConfigId)).length
+    );
 
     const hasCharacterBinding = (characterId: string): boolean => {
         const binding = config.characterBindings.find(b => b.characterId === characterId);
@@ -595,7 +637,7 @@ export function BindingManager() {
         slot: BindingSlot,
         emptyText: string,
         onOpenField: (field: BindingField) => void,
-        options?: { includeRegex?: boolean },
+        options?: { includeRegex?: boolean; apiOnly?: boolean },
     ) => {
         const primaryFields: BindingField[] = ["apiConfigId", "voiceConfigId"];
         const compactFields: BindingField[] = options?.includeRegex === false
@@ -632,6 +674,16 @@ export function BindingManager() {
                 </button>
             );
         };
+
+        // 所有角色共用的应用默认只开放 API：预设、世界书、身份、语音都是跟角色走的，
+        // 在这一层统一覆盖会让各角色自己的设置失效（比如世界书串戏）
+        if (options?.apiOnly) {
+            return (
+                <div className="binding-global-grid">
+                    {renderBindingCard("apiConfigId", "wide")}
+                </div>
+            );
+        }
 
         return (
             <div className="binding-global-grid">
@@ -1002,6 +1054,38 @@ export function BindingManager() {
                     </section>
 
                     <section className="flex flex-col gap-3">
+                        <p className="settings-menu-section-title">App Defaults</p>
+                        <div className="binding-aux-select">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    reloadData();
+                                    setSelectedCharId("");
+                                    setSelectedAppId(null);
+                                    setActiveSlotSheetField(null);
+                                    setLevel("allApps");
+                                }}
+                                className="binding-aux-trigger"
+                                aria-haspopup="dialog"
+                            >
+                                <span className="binding-choice-icon binding-choice-icon-inline" style={bindingAccentStyle(BINDING_ACCENTS.api)}>
+                                    <Layers size={22} strokeWidth={1.8} />
+                                </span>
+                                <span className="binding-card-copy">
+                                    <span className="binding-choice-label">各应用统一设置</span>
+                                    <span className="binding-choice-desc">给某个应用设一个所有角色通用的 API，比如朋友圈、手记、小红书用便宜模型</span>
+                                </span>
+                                <span className="binding-choice-row">
+                                    <span className={countAppDefaultApis() > 0 ? "binding-choice-value" : "binding-choice-value is-empty"}>
+                                        {countAppDefaultApis() > 0 ? `已设 ${countAppDefaultApis()} 项` : "未设置"}
+                                    </span>
+                                    <ChevronRight size={15} strokeWidth={1.7} className="binding-choice-chevron" />
+                                </span>
+                            </button>
+                        </div>
+                    </section>
+
+                    <section className="flex flex-col gap-3">
                         <p className="settings-menu-section-title">Auxiliary API</p>
                         <div className="flex flex-col gap-3">
                             {renderAuxSelect("memorySummaryApiConfigId", "记忆总结 API")}
@@ -1068,13 +1152,59 @@ export function BindingManager() {
                 </>
             )}
 
+            {/* 各应用统一设置：所有角色共用的应用默认 API */}
+            {level === "allApps" && (
+                <section className="flex flex-col gap-3">
+                    <p className="settings-menu-section-title">App Defaults</p>
+                    <p className="menu-desc">
+                        在这里给某个应用选一个 API，所有角色在这个应用里都会用它（包括没有指定角色的内容，比如小红书路人帖）。优先级：高于角色默认，低于「某个角色 × 某个应用」的单独设置；没设置就用全局 API。
+                    </p>
+                    <div className="binding-app-grid">
+                        {appOverrideEntries.map(app => {
+                            const hasApi = Boolean(config.appDefaults?.[app.id]?.apiConfigId);
+                            return (
+                                <button
+                                    key={app.id}
+                                    onClick={() => {
+                                        setSelectedCharId("");
+                                        setSelectedAppId(app.id);
+                                        setActiveSlotSheetField(null);
+                                        setLevel("app");
+                                    }}
+                                    className="g-card binding-app-card"
+                                    style={bindingAccentStyle(app.color)}
+                                    aria-label={`${app.label}统一设置`}
+                                >
+                                    <span className="binding-app-icon">
+                                        {app.iconDataUrl ? (
+                                            <img src={app.iconDataUrl} alt="" className="binding-app-icon-image" />
+                                        ) : (
+                                            <IconGlyph id={app.iconId} className="binding-app-icon-glyph" />
+                                        )}
+                                    </span>
+                                    <span className="binding-app-label">
+                                        {app.label}
+                                    </span>
+                                    {hasApi && (
+                                        <span className="binding-app-badge">
+                                            1
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </section>
+            )}
+
             {/* Level 3: App binding */}
             {level === "app" && (
                 <>
                     <section className="flex flex-col gap-3">
-                        <p className="settings-menu-section-title">App Binding</p>
+                        <p className="settings-menu-section-title">{selectedCharId ? "App Binding" : "App Default · 所有角色"}</p>
                         {renderBindingSlotCards(currentSlot, inheritLabel, setActiveSlotSheetField, {
                             includeRegex: canBindRegexInApp(selectedAppId),
+                            apiOnly: !selectedCharId,
                         })}
                     </section>
 
@@ -1082,7 +1212,7 @@ export function BindingManager() {
                         onClick={resetAppBinding}
                         className="ui-btn ui-btn-soft-danger flex justify-center"
                     >
-                        <RotateCcw size={16} /> 重置此应用绑定
+                        <RotateCcw size={16} /> {selectedCharId ? "重置此应用绑定" : "重置此应用的统一 API"}
                     </button>
                 </>
             )}
