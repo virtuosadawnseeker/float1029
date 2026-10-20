@@ -258,7 +258,56 @@ export async function simpleLLMCall(
             return { content: null, error: `API 错误 ${res.status}: ${errText.slice(0, 200)}${streamNote}` };
         }
 
-        const data = await res.json();
+        // 先取文本再解析：Safari 在响应不是 JSON 时只会报「The string did not match the expected pattern」，
+        // 看不出到底回了什么。有些中转站不管请求有没有要求流式，都回 SSE 或网页。
+        const rawBody = await res.text();
+        let data: Record<string, unknown>;
+        try {
+            data = JSON.parse(rawBody) as Record<string, unknown>;
+        } catch {
+            const snippet = rawBody.trim().slice(0, 160).replace(/\s+/g, " ") || "（空）";
+            console.warn("[simpleLLMCall] Non-JSON response body:", snippet);
+            if (!options?.stream) {
+                // 非流式解析不了：退到流式再试一次（能处理强制 SSE 的中转站）
+                try {
+                    const streamed = await streamingLLMCall(config, messages, temperature, max_tokens, options?.signal);
+                    pushApiLog({
+                        characterName: options?.label,
+                        source: "background",
+                        model: config.defaultModel,
+                        messages: messages.map(m => ({ role: m.role, content: m.content })),
+                        rawResponse: streamed.content,
+                        usage: streamed.usage,
+                    });
+                    return {
+                        content: streamed.content,
+                        finishReason: streamed.finishReason,
+                        wasTruncated: isTruncationFinishReason(streamed.finishReason),
+                    };
+                } catch (streamErr) {
+                    if (options?.signal?.aborted) return { content: null, error: "请求已取消" };
+                    const reason = streamErr instanceof Error ? streamErr.message : String(streamErr);
+                    pushApiLog({
+                        characterName: options?.label,
+                        source: "background",
+                        model: config.defaultModel,
+                        messages: messages.map(m => ({ role: m.role, content: m.content })),
+                        rawResponse: `[响应不是 JSON] ${snippet}\n[流式重试也失败] ${reason}`,
+                        isError: true,
+                    });
+                    return { content: null, error: `请求失败: API 返回的不是 JSON（开头：${snippet}）；流式重试也失败：${reason}` };
+                }
+            }
+            pushApiLog({
+                characterName: options?.label,
+                source: "background",
+                model: config.defaultModel,
+                messages: messages.map(m => ({ role: m.role, content: m.content })),
+                rawResponse: `[响应不是 JSON] ${snippet}${streamNote}`,
+                isError: true,
+            });
+            return { content: null, error: `请求失败: API 返回的不是 JSON（开头：${snippet}）${streamNote}` };
+        }
 
         // Extract content — try multiple response formats for maximum compatibility
         const content = extractLLMContent(data, config.provider);
